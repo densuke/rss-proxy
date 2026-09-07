@@ -82,6 +82,7 @@ GitHub Releases で以下のバイナリを配布している。
 | ターゲット | 用途 |
 |-----------|------|
 | `x86_64-unknown-linux-musl` | Linux / AMD64。静的リンク済みで glibc のバージョンに依存しない |
+| `aarch64-unknown-linux-musl` | Linux / ARM64 (Raspberry Pi、Graviton など) |
 | `aarch64-apple-darwin` | macOS / Apple Silicon |
 
 Linux 環境の更新は同梱のスクリプトで行う。最新リリースを取得し、SHA256 を検証してから差し替え、サービスを再起動する。
@@ -102,6 +103,24 @@ systemd unit と Caddy の設定例は [deploy/](deploy/) にある。
 $ cargo test
 $ cargo fmt --all && cargo clippy --all-targets -- -D warnings
 ```
+
+Linux 上での挙動は、CI に投げる前にコンテナで確認できる。
+
+```console
+$ ./scripts/check-linux.sh
+```
+
+musl 静的ビルド、テスト、常駐時の RSS を Linux コンテナ内で確認する。Apple Silicon では linux/arm64 が QEMU なしで動くため、速度もメモリ測定も信用できる。`container` / `docker` / `podman` のいずれかがあれば動く。
+
+実測値 (linux/arm64、musl 静的、70 item のフィードを取得・処理・配信したあと):
+
+| 項目 | 値 |
+|------|-----|
+| バイナリサイズ | 8.3 MiB |
+| 常駐時 RSS | 7.6 MB |
+| ピーク (VmHWM) | 8.0 MB |
+
+静的リンクは ld が数 GB を使う。コンテナのメモリ割り当てが少ないと OOM で kill されるため、既定で 8GB を割り当てている (`MEMORY` で変更できる)。
 
 ### リリース
 

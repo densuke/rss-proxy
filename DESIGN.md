@@ -405,9 +405,22 @@ cargo install cargo-audit && cargo audit
 | ターゲット | ランナー | 備考 |
 |-----------|---------|------|
 | `x86_64-unknown-linux-musl` | ubuntu-latest | 運用環境。musl による完全静的リンクで glibc のバージョンに依存しない |
+| `aarch64-unknown-linux-musl` | ubuntu-24.04-arm | ARM 系の運用環境向け。ネイティブビルドなのでクロスコンパイルは不要 |
 | `aarch64-apple-darwin` | macos-latest | 開発環境で動かす用 |
 
 musl ビルドでは事前に `apt-get install -y musl-tools` が必要になる。rusqlite の `bundled` フィーチャが SQLite の C ソースをコンパイルするため、musl 向けの C コンパイラが要る。
+
+### 12.3.2 CI へ投げる前の Linux 確認
+
+`scripts/check-linux.sh` が Linux コンテナ内で musl ビルド、テスト、常駐時の RSS 測定を行う。
+
+開発機が Apple Silicon なので、linux/arm64 のコンテナは QEMU を介さずネイティブに動く。速度も RSS も実機と同じ条件で測れる。逆に linux/amd64 は QEMU 経由となり、メモリ測定の値は当てにならない。
+
+アーキテクチャ間で挙動が変わりうるのはページサイズとコードサイズ程度で、musl のリンク可否や Linux 上の動作といった失敗しやすい部分はこの確認で捕まえられる。
+
+実測 (linux/arm64、ページサイズ 4096、70 item のフィードを 1 巡させたあと): バイナリ 8.3MiB、常駐 RSS 7.6MB、ピーク 8.0MB。
+
+静的リンクの ld は数 GB を消費する。コンテナのメモリ割り当てが 1GB では OOM で kill された。スクリプトは既定で 8GB を割り当てる。
 
 成果物は `rss-proxy-<target>.tar.gz` と SHA256 チェックサムで、GitHub Releases に添付する。
 
