@@ -1,8 +1,10 @@
 pub mod dedupe;
+pub mod exclude;
 pub mod vendor;
 
 use crate::model::Feed;
 use crate::proc::dedupe::Dedupe;
+use crate::proc::exclude::Exclude;
 use crate::proc::vendor::google_news::GoogleNewsCluster;
 
 #[derive(Debug, thiserror::Error)]
@@ -48,11 +50,31 @@ const DEDUPE_PARAMS: &[ParamInfo] = &[ParamInfo {
     values: &["guid", "link", "normalized_title"],
 }];
 
+const EXCLUDE_PARAMS: &[ParamInfo] = &[
+    ParamInfo {
+        name: "words",
+        description: "この語を含む item を落とす。配列で複数指定でき、1 つでも一致すれば対象。大文字小文字は区別しない",
+        default: "[]",
+        values: &[],
+    },
+    ParamInfo {
+        name: "target",
+        description: "どこを見るか。description は HTML を落としてから探す",
+        default: "title",
+        values: &["title", "description", "both"],
+    },
+];
+
 const CATALOG: &[ProcessorInfo] = &[
     ProcessorInfo {
         kind: "google_news_cluster",
         summary: "Google ニュース専用。description の関連記事リストから、title と重複する先頭要素を取り除く。関連記事は残す",
         params: &[],
+    },
+    ProcessorInfo {
+        kind: "exclude",
+        summary: "指定した語を含む item を取り除く。上流の検索条件で書ききれなかった語を落とす",
+        params: EXCLUDE_PARAMS,
     },
     ProcessorInfo {
         kind: "dedupe",
@@ -82,6 +104,9 @@ pub fn build(kind: &str, params: &str) -> Result<Box<dyn Processor>, ProcessorEr
         "google_news_cluster" => Ok(Box::new(GoogleNewsCluster)),
         "dedupe" => Ok(Box::new(
             serde_json::from_str::<Dedupe>(json).map_err(parse)?,
+        )),
+        "exclude" => Ok(Box::new(
+            serde_json::from_str::<Exclude>(json).map_err(parse)?,
         )),
         other => Err(ProcessorError::UnknownKind(other.to_string())),
     }

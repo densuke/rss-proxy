@@ -76,8 +76,13 @@ async fn run(store: &Store, client: &Client, feed: &Feed) -> Result<(), RefreshE
         return Ok(());
     };
 
-    let parsed = parse::parse(&bytes)?;
+    let mut parsed = parse::parse(&bytes)?;
+    // 上流のタイトルは記録として残しつつ、表示名があれば配信する title を差し替える。
+    // 検索フィードの title は検索クエリそのままで、購読すると読みづらいため
     let title = parsed.title.clone();
+    if let Some(label) = &feed.label {
+        parsed.title = label.clone();
+    }
 
     let chain = store
         .processors(feed.id)?

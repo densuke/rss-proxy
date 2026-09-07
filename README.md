@@ -43,6 +43,8 @@ DB のパスは `--db` で指定する (既定 `rss-proxy.db`)。
 - `slug` — 英数字と `-` `_`、3〜64 文字。省略すると 22 文字の乱数になる
 - `label` — 自由。日本語も空白も使える。省略すると上流フィードのタイトルを使う
 
+`label` は管理画面の表示だけでなく、**配信する XML の `<title>` も置き換える**。Google ニュースの検索フィードは channel のタイトルが検索クエリそのままになるため、購読前に読みやすい名前を付けられる。
+
 識別子を省略すると `/feeds/k7Rm2xQvB8nT4wLpZaYcDf` のような推測しにくい URL になる。ただしこれは軽い目隠しであって認証ではない。URL は RSS リーダーの同期先やプロキシのログにも残る。
 
 識別子は後から `feed set --new-slug` や管理画面で変更できる。**変更すると配信 URL が変わり、購読中の登録が切れる。**
@@ -54,6 +56,7 @@ DB のパスは `--db` で指定する (既定 `rss-proxy.db`)。
 | 種別 | 内容 | パラメータ |
 |------|------|-----------|
 | `google_news_cluster` | Google ニュースの description から、title と重複する先頭要素を取り除く。関連記事は残す | なし |
+| `exclude` | 指定した語を含む item を取り除く | `words`: 語の配列<br>`target`: `title` / `description` / `both` (既定 `title`) |
 | `dedupe` | item 間の重複除去 | `key`: `guid` / `link` / `normalized_title` (既定 `link`) |
 
 ```console
@@ -65,6 +68,7 @@ Web UI では 1 行に 1 つ「種別 パラメータ(JSON)」の形式で書く
 
 ```
 google_news_cluster
+exclude {"words":["スポーツ","競馬","ABEMA"]}
 dedupe {"key":"link"}
 ```
 

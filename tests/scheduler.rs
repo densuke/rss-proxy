@@ -103,3 +103,50 @@ fn backoff_grows_then_caps_at_six_hours() {
     assert_eq!(backoff_secs(100, 900), 6 * 3600);
     assert_eq!(backoff_secs(100, 900), backoff_secs(50, 900));
 }
+
+/// 検索フィードの channel title は検索クエリそのままで、購読すると読みづらい。
+/// 表示名を設定してあれば、それを配信する title にも使う。
+#[tokio::test]
+async fn the_label_replaces_the_channel_title() {
+    let (url, _up) = common::serve(FIXTURE).await;
+    let store = Store::open_in_memory().unwrap();
+    store
+        .add_feed(&NewFeed {
+            slug: Some("news".into()),
+            label: Some("主要ニュース".into()),
+            url: url.clone(),
+            interval_secs: 900,
+        })
+        .unwrap();
+    let feed = store.feed_by_slug("news").unwrap().unwrap();
+
+    refresh(&store, &rss_proxy::fetch::client(), &feed)
+        .await
+        .unwrap();
+
+    let xml = store.output("news").unwrap().unwrap();
+    let parsed = rss_proxy::parse::parse(xml.as_bytes()).unwrap();
+    assert_eq!(parsed.title, "主要ニュース");
+
+    // 上流のタイトルは記録として残す
+    let after = store.feed_by_slug("news").unwrap().unwrap();
+    assert_eq!(
+        after.title.as_deref(),
+        Some("ヘッドライン - 最新 - Google ニュース")
+    );
+}
+
+#[tokio::test]
+async fn without_a_label_the_upstream_title_is_used() {
+    let (url, _up) = common::serve(FIXTURE).await;
+    let (store, _id) = store_with_feed(&url);
+    let feed = store.feed_by_slug("news").unwrap().unwrap();
+
+    refresh(&store, &rss_proxy::fetch::client(), &feed)
+        .await
+        .unwrap();
+
+    let xml = store.output("news").unwrap().unwrap();
+    let parsed = rss_proxy::parse::parse(xml.as_bytes()).unwrap();
+    assert_eq!(parsed.title, "ヘッドライン - 最新 - Google ニュース");
+}
