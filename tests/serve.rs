@@ -66,3 +66,19 @@ async fn healthz_is_ok() {
     let res = reqwest::get(format!("{base}/healthz")).await.unwrap();
     assert_eq!(res.status(), 200);
 }
+
+#[tokio::test]
+async fn healthz_reports_the_version_for_update_checks() {
+    let base = serve_with(|_| {}).await;
+    let body = reqwest::get(format!("{base}/healthz"))
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+
+    // 稼働中のバージョンを機械的に取得できるようにする
+    let json: serde_json::Value = serde_json::from_str(&body).expect("JSON で返る");
+    assert_eq!(json["status"], "ok");
+    assert_eq!(json["version"], env!("CARGO_PKG_VERSION"));
+}

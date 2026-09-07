@@ -54,14 +54,17 @@ body{font-family:system-ui,sans-serif;margin:2rem auto;max-width:60rem;line-heig
 table{border-collapse:collapse;width:100%}th,td{border:1px solid #ccc;padding:.4rem;text-align:left}
 textarea{width:100%;font-family:ui-monospace,monospace}
 .err{color:#b00}form{display:inline}
+footer{margin-top:2rem;padding-top:.5rem;border-top:1px solid #ccc;color:#666}
 ol{padding-left:1.5rem}li{margin:.4rem 0}small{color:#666}
 </style>";
 
 fn page(title: &str, body: &str) -> Html<String> {
     Html(format!(
         "<!doctype html><html lang=\"ja\"><head><meta charset=\"utf-8\">\
-         <title>{}</title>{STYLE}</head><body>{body}</body></html>",
-        escape(title)
+         <title>{title}</title>{STYLE}</head><body>{body}\
+         <footer><small>rss-proxy {version}</small></footer></body></html>",
+        title = escape(title),
+        version = env!("CARGO_PKG_VERSION"),
     ))
 }
 

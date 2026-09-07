@@ -358,3 +358,24 @@ async fn edit_page_shows_the_raw_fields_of_served_items() {
     assert!(body.contains("GUID-1"));
     assert!(body.contains("2026-08-08"), "時刻が表示される");
 }
+
+#[tokio::test]
+async fn pages_show_the_running_version() {
+    let (base, c) = serve(|s| {
+        s.add_feed(&feed("news")).unwrap();
+    })
+    .await;
+
+    let version = env!("CARGO_PKG_VERSION");
+    for path in ["/", "/ui/feeds/news"] {
+        let body = c
+            .get(format!("{base}{path}"))
+            .send()
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap();
+        assert!(body.contains(version), "{path} にバージョンがない");
+    }
+}

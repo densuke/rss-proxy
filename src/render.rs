@@ -28,6 +28,10 @@ pub fn to_rss2(feed: &Feed) -> String {
         .collect::<Vec<_>>();
 
     rss::ChannelBuilder::default()
+        // どのバージョンが処理した出力かを配信物自体に残す
+        .generator(Some(
+            concat!("rss-proxy ", env!("CARGO_PKG_VERSION")).to_string(),
+        ))
         .title(feed.title.clone())
         .link(feed.link.clone().unwrap_or_default())
         .description(feed.description.clone().unwrap_or_default())

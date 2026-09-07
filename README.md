@@ -75,6 +75,15 @@ rss-proxy proc detach <feed> <position>
 rss-proxy proc move <feed> <from> <to>
 ```
 
+## バージョンの確認
+
+```console
+$ curl -s http://127.0.0.1:8080/healthz
+{"status":"ok","version":"0.2.0"}
+```
+
+管理画面のフッターにも表示される。配信する XML の `<generator>` には、その出力を処理したバージョンが入る。バイナリを更新しても次の巡回までは保存済みの出力が配信されるため、両者を比べると再処理がまだのフィードが分かる。
+
 ## 運用
 
 GitHub Releases で以下のバイナリを配布している。

@@ -97,3 +97,16 @@ fn timezone_offsets_are_normalised_to_utc_without_shifting_the_instant() {
     assert_eq!(reparsed.items[0].published, feed.items[0].published);
     assert!(render::to_rss2(&feed).contains("+0000"));
 }
+
+#[test]
+fn output_records_which_version_produced_it() {
+    let feed = parse::parse(FIXTURE.as_bytes()).unwrap();
+    let xml = render::to_rss2(&feed);
+    assert!(
+        xml.contains(&format!(
+            "<generator>rss-proxy {}</generator>",
+            env!("CARGO_PKG_VERSION")
+        )),
+        "generator に処理したバージョンが入っていない"
+    );
+}

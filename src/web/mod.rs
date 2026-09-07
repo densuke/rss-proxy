@@ -21,6 +21,15 @@ pub fn app(store: Store) -> Router {
         .route("/ui/feeds/{name}/delete", post(ui::delete))
         .route("/ui/feeds/{name}/processors", post(ui::set_chain))
         .route("/ui/feeds/{name}/fetch", post(ui::fetch_now))
-        .route("/healthz", get(|| async { "ok" }))
+        // 稼働中のバージョンを機械的に取得できるようにする。更新の有無の確認に使う
+        .route(
+            "/healthz",
+            get(|| async {
+                axum::Json(serde_json::json!({
+                    "status": "ok",
+                    "version": env!("CARGO_PKG_VERSION"),
+                }))
+            }),
+        )
         .with_state(Arc::new(Mutex::new(store)))
 }
