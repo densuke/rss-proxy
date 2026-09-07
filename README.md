@@ -88,7 +88,7 @@ GitHub Releases で以下のバイナリを配布している。
 Linux 環境の更新は同梱のスクリプトで行う。最新リリースを取得し、SHA256 を検証してから差し替え、サービスを再起動する。
 
 ```console
-$ REPO=<owner>/rss-proxy deploy/update.sh
+$ sudo deploy/update.sh   # REPO / DEST / SERVICE で上書きできる
 ```
 
 systemd unit と Caddy の設定例は [deploy/](deploy/) にある。
