@@ -12,6 +12,7 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
+use crate::html::to_plain_text;
 use crate::model::Feed;
 use crate::proc::{Processor, ProcessorError};
 
@@ -21,8 +22,6 @@ static LI: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)<li>(.*?)</li>").
 static ANCHOR: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)<a[^>]*>(.*?)</a>").unwrap());
 static FONT: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?s)<font[^>]*>(.*?)</font>").unwrap());
-static TAG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"<[^>]*>").unwrap());
-static SPACES: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s+").unwrap());
 
 pub struct GoogleNewsCluster;
 
@@ -56,8 +55,8 @@ fn strip_duplicate_head(title: &str, description: &str) -> Option<String> {
     };
     let head = entries.first()?;
 
-    let head_text = normalize(&extract(&ANCHOR, head)?);
-    let publisher = extract(&FONT, head).map(|p| normalize(&p));
+    let head_text = to_plain_text(&extract(&ANCHOR, head)?);
+    let publisher = extract(&FONT, head).map(|p| to_plain_text(&p));
     if head_text != normalize_title(title, publisher.as_deref()) {
         return None;
     }
@@ -75,7 +74,7 @@ fn extract(re: &Regex, html: &str) -> Option<String> {
 
 /// title 末尾の " - 媒体名" を落としたうえで正規化する。
 fn normalize_title(title: &str, publisher: Option<&str>) -> String {
-    let normalized = normalize(title);
+    let normalized = to_plain_text(title);
     match publisher {
         Some(p) if !p.is_empty() => normalized
             .strip_suffix(&format!(" - {p}"))
@@ -83,18 +82,4 @@ fn normalize_title(title: &str, publisher: Option<&str>) -> String {
             .to_string(),
         _ => normalized,
     }
-}
-
-/// タグと HTML エンティティを落とし、空白を畳む。
-fn normalize(text: &str) -> String {
-    let text = TAG.replace_all(text, "");
-    let text = text
-        .replace("&nbsp;", " ")
-        .replace(['\u{a0}', '　'], " ")
-        .replace("&amp;", "&")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&#39;", "'");
-    SPACES.replace_all(&text, " ").trim().to_string()
 }

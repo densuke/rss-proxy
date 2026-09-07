@@ -9,6 +9,7 @@ use axum::response::{Html, IntoResponse, Redirect, Response};
 use chrono::{DateTime, FixedOffset, Local, Offset};
 use serde::Deserialize;
 
+use crate::html::to_plain_text;
 use crate::proc;
 use crate::store::{Feed, NewFeed, ProcessorSpec, Store};
 use crate::web::SharedStore;
@@ -53,6 +54,7 @@ body{font-family:system-ui,sans-serif;margin:2rem auto;max-width:60rem;line-heig
 table{border-collapse:collapse;width:100%}th,td{border:1px solid #ccc;padding:.4rem;text-align:left}
 textarea{width:100%;font-family:ui-monospace,monospace}
 .err{color:#b00}form{display:inline}
+ol{padding-left:1.5rem}li{margin:.4rem 0}small{color:#666}
 </style>";
 
 fn page(title: &str, body: &str) -> Html<String> {
@@ -150,10 +152,11 @@ pub async fn show(State(store): State<SharedStore>, Path(name): Path<String>) ->
             return Ok(None);
         };
         let chain = s.processors(feed.id)?;
-        Ok::<_, rusqlite::Error>(Some((feed, chain)))
+        let output = s.output(&name)?;
+        Ok::<_, rusqlite::Error>(Some((feed, chain, output)))
     });
 
-    let (feed, chain) = match found {
+    let (feed, chain, output) = match found {
         Ok(Some(v)) => v,
         Ok(None) => return StatusCode::NOT_FOUND.into_response(),
         Err(e) => return server_error(e),
@@ -175,6 +178,7 @@ pub async fn show(State(store): State<SharedStore>, Path(name): Path<String>) ->
              <form method=\"post\" action=\"/ui/feeds/{name}/processors\">\
              <textarea name=\"chain\" rows=\"6\">{text}</textarea>\
              <p><button>保存</button></p></form>\
+             <h2>配信中の内容</h2>{items}\
              <h2>操作</h2>\
              <form method=\"post\" action=\"/ui/feeds/{name}/fetch\"><button>今すぐ取得</button></form>\
              <form method=\"post\" action=\"/ui/feeds/{name}/delete\"><button>削除</button></form>",
@@ -185,9 +189,58 @@ pub async fn show(State(store): State<SharedStore>, Path(name): Path<String>) ->
             state = status(&feed),
             kinds = crate::cli::KINDS.join(", "),
             text = escape(&text),
+            items = served_items(output.as_deref()),
         ),
     )
     .into_response()
+}
+
+/// 配信中の XML を解析し、書かれている順に item を並べる。
+/// Processor を付け替えた結果、実際に何が配信されるのかを確認するための表示。
+fn served_items(xml: Option<&str>) -> String {
+    let Some(xml) = xml else {
+        return "<p>まだ取得されていません。「今すぐ取得」を実行してください。</p>".into();
+    };
+    let feed = match crate::parse::parse(xml.as_bytes()) {
+        Ok(feed) => feed,
+        Err(e) => {
+            return format!(
+                "<p class=\"err\">配信内容を解析できません: {}</p>",
+                escape(&e.to_string())
+            );
+        }
+    };
+
+    let rows = feed
+        .items
+        .iter()
+        .map(|item| {
+            let title = escape(item.title.as_deref().unwrap_or("(タイトルなし)"));
+            let title = match &item.link {
+                Some(link) => format!("<a href=\"{}\">{title}</a>", escape(link)),
+                None => title,
+            };
+            let excerpt = item
+                .description
+                .as_deref()
+                .map(excerpt)
+                .filter(|e| !e.is_empty())
+                .map(|e| format!("<br><small>{}</small>", escape(&e)))
+                .unwrap_or_default();
+            format!("<li>{title}{excerpt}</li>")
+        })
+        .collect::<String>();
+
+    format!("<p>{} 件</p><ol>{rows}</ol>", feed.items.len())
+}
+
+/// HTML を落とし、先頭だけを取り出す。
+fn excerpt(html: &str) -> String {
+    let text = to_plain_text(html);
+    match text.char_indices().nth(120) {
+        Some((cut, _)) => format!("{}…", &text[..cut]),
+        None => text.to_string(),
+    }
 }
 
 #[derive(Deserialize)]

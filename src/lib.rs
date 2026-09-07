@@ -1,5 +1,6 @@
 pub mod cli;
 pub mod fetch;
+pub mod html;
 pub mod model;
 pub mod parse;
 pub mod proc;

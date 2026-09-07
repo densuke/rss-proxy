@@ -206,3 +206,54 @@ async fn index_shows_the_last_fetch_time() {
         "値にオフセットが重複して付いている"
     );
 }
+
+#[tokio::test]
+async fn edit_page_lists_the_items_being_served() {
+    let xml = r#"<?xml version="1.0"?><rss version="2.0"><channel>
+      <title>t</title><link>https://example.com</link><description>d</description>
+      <item><title>1 件目の見出し</title><link>https://example.com/1</link>
+        <description>&lt;p&gt;本文の要約&lt;/p&gt;</description></item>
+      <item><title>2 件目の見出し</title><link>https://example.com/2</link></item>
+    </channel></rss>"#;
+
+    let (base, c) = serve(|s| {
+        let id = s.add_feed(&feed("news")).unwrap();
+        s.set_output(id, xml).unwrap();
+    })
+    .await;
+
+    let body = c
+        .get(format!("{base}/ui/feeds/news"))
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+
+    assert!(body.contains("配信中の内容"));
+    assert!(body.contains("2 件"), "件数が出る");
+    // フィードに書かれている順で並ぶ
+    assert!(body.find("1 件目の見出し").unwrap() < body.find("2 件目の見出し").unwrap());
+    // description は HTML を落として抜粋する
+    assert!(body.contains("本文の要約"));
+    assert!(!body.contains("<p>本文の要約</p>"));
+}
+
+#[tokio::test]
+async fn edit_page_of_a_never_fetched_feed_says_so() {
+    let (base, c) = serve(|s| {
+        s.add_feed(&feed("news")).unwrap();
+    })
+    .await;
+
+    let body = c
+        .get(format!("{base}/ui/feeds/news"))
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert!(body.contains("まだ取得されていません"));
+}
