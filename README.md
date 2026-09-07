@@ -100,11 +100,23 @@ Linux 環境の更新は同梱のスクリプトで行う。最新リリース�
 $ sudo deploy/update.sh   # REPO / DEST / SERVICE で上書きできる
 ```
 
+```console
+$ rss-proxy hash-password
+管理画面のパスワード:
+もう一度入力:
+RSS_PROXY_ADMIN_USER=admin
+RSS_PROXY_ADMIN_PASSWORD_HASH='$argon2id$v=19$m=19456,t=2,p=1$...'
+```
+
+出力の 2 行を systemd の `EnvironmentFile` に置く。
+
+資格情報が未設定の場合、管理画面はループバックからのみ利用できる (それ以外は 403)。**リバースプロキシ配下では必ず設定すること。** Caddy 経由の接続は接続元が `127.0.0.1` に見えるため、未設定だとループバック判定を通過してしまう。
+
 systemd unit と Caddy の設定例は [deploy/](deploy/) にある。
 
-- 配信パス `/feeds/*` は認証なし
-- 管理画面は Caddy 側で Basic 認証をかける。**認証なしで公開しない** (フィード登録と処理設定を書き換えられる)
-- rss-proxy 自身は `127.0.0.1` のみで listen する
+- 配信パス `/feeds/*` と `/healthz` は認証なし
+- 管理画面は Basic 認証で保護する。資格情報は環境変数で渡す
+- rss-proxy 自身は `127.0.0.1` のみで listen し、公開は Caddy が担当する
 
 ## 開発
 

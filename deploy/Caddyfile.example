@@ -1,13 +1,9 @@
-# 配信パスは認証なし、管理画面は Basic 認証で保護する。
-# ハッシュは caddy hash-password で生成する。
+# 配信パスも管理画面も rss-proxy へそのまま渡す。
+# 管理画面の認証は rss-proxy 自身が行う (RSS_PROXY_ADMIN_USER /
+# RSS_PROXY_ADMIN_PASSWORD_HASH)。
+#
+# 重要: Caddy 経由の接続は rss-proxy からは 127.0.0.1 に見える。
+# 資格情報を設定しないと、認証未設定時のループバック判定を通過してしまう。
 rss.example.com {
-    handle /feeds/* {
-        reverse_proxy 127.0.0.1:8080
-    }
-    handle {
-        basic_auth {
-            admin <bcrypt-hash>
-        }
-        reverse_proxy 127.0.0.1:8080
-    }
+    reverse_proxy 127.0.0.1:8080
 }

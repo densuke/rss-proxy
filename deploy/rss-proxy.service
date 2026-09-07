@@ -7,6 +7,8 @@ Wants=network-online.target
 Type=simple
 User=rss-proxy
 Group=rss-proxy
+# 管理画面の資格情報。rss-proxy hash-password で生成する
+EnvironmentFile=/etc/rss-proxy/admin.env
 ExecStart=/usr/local/bin/rss-proxy serve --db /var/lib/rss-proxy/rss-proxy.db
 Restart=on-failure
 StateDirectory=rss-proxy
