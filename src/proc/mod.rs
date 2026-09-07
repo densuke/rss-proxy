@@ -17,6 +17,52 @@ pub enum ProcessorError {
 pub trait Processor: Send + Sync {
     fn name(&self) -> &'static str;
     fn apply(&self, feed: Feed) -> Result<Feed, ProcessorError>;
+
+    /// 実際に使われるパラメータを JSON で返す。
+    /// 省略された項目は既定値で埋まるため、保存時にこれを書き戻すことで
+    /// 「何を設定したのか」が後から画面上で分かる。
+    fn params(&self) -> String {
+        "{}".into()
+    }
+}
+
+/// Processor の種別ごとの説明。CLI と Web UI の両方から参照する。
+pub struct ProcessorInfo {
+    pub kind: &'static str,
+    pub summary: &'static str,
+    pub params: &'static [ParamInfo],
+}
+
+pub struct ParamInfo {
+    pub name: &'static str,
+    pub description: &'static str,
+    pub default: &'static str,
+    /// 取りうる値。自由入力なら空
+    pub values: &'static [&'static str],
+}
+
+const DEDUPE_PARAMS: &[ParamInfo] = &[ParamInfo {
+    name: "key",
+    description: "同一と判定する基準。値が空の item は判定できないためそのまま残す",
+    default: "link",
+    values: &["guid", "link", "normalized_title"],
+}];
+
+const CATALOG: &[ProcessorInfo] = &[
+    ProcessorInfo {
+        kind: "google_news_cluster",
+        summary: "Google ニュース専用。description の関連記事リストから、title と重複する先頭要素を取り除く。関連記事は残す",
+        params: &[],
+    },
+    ProcessorInfo {
+        kind: "dedupe",
+        summary: "同じ item が複数あるとき、先に出現したものだけを残す",
+        params: DEDUPE_PARAMS,
+    },
+];
+
+pub fn catalog() -> &'static [ProcessorInfo] {
+    CATALOG
 }
 
 /// DB に保存された (kind, params) から Processor を組み立てる。

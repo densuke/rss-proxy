@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use crate::model::{Feed, Item};
 use crate::proc::{Processor, ProcessorError};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Key {
     Guid,
@@ -14,7 +14,7 @@ pub enum Key {
     NormalizedTitle,
 }
 
-#[derive(Debug, Default, serde::Deserialize)]
+#[derive(Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Dedupe {
     pub key: Key,
@@ -23,6 +23,10 @@ pub struct Dedupe {
 impl Processor for Dedupe {
     fn name(&self) -> &'static str {
         "dedupe"
+    }
+
+    fn params(&self) -> String {
+        serde_json::to_string(self).expect("dedupe のパラメータを直列化できない")
     }
 
     fn apply(&self, mut feed: Feed) -> Result<Feed, ProcessorError> {

@@ -195,6 +195,14 @@ item 間の重複除去。先に出現したものを残す。巡回のたびに
 パラメータ:
 - `key`: `guid` / `link` / `normalized_title`。既定 `link`
 
+### 5.5 Processor カタログ
+
+種別ごとの説明とパラメータの仕様を `proc::catalog()` に 1 か所だけ持つ。CLI の `proc list` と Web UI のヘルプは同じ定義から生成し、説明が二重管理になるのを避ける。
+
+各パラメータについて、名前・説明・既定値・取りうる値を持つ。
+
+Processor は自身の実効パラメータを JSON で返せる (`Processor::params`)。省略された項目を既定値で埋めた形が得られるので、これを保存に使う。
+
 ## 6. 取得とスケジューリング
 
 ### 6.1 背景巡回
@@ -291,6 +299,12 @@ JSON API (`/api/*`) は用意しない。当初は Web UI がそれを呼ぶ想�
 
 Processor 連鎖はテキストエリアで編集する。1 行に 1 つ、「種別 パラメータ(JSON)」の形式で書き、行の並びが適用順になる。追加・削除・並べ替えがすべてテキスト編集で済み、行ごとのボタンや並べ替え UI が不要になる。保存時にすべての行を組み立てて検証し、1 つでも不正なら 400 を返して何も保存しない。
 
+**省略されたパラメータは既定値で埋めて保存する。** `dedupe` とだけ書いても `dedupe {"key":"link"}` として残る。行を消して書き直したときに、何を設定していたのかが画面から読み取れなくなるのを防ぐ。CLI の `proc attach` も同じ扱いにする。
+
+各 Processor の説明とパラメータの一覧は 5.5 のカタログから生成し、編集画面に折りたたみで表示する。CLI の `proc list` も同じカタログを使う。
+
+編集画面には「項目のフィールド」として、配信中の 1 件目の item が各フィールドに実際に何を持っているかを表示する。`dedupe` のキーを選ぶとき、`guid` や `link` に何が入っていて空でないかを確認できる。
+
 一度も取得に成功していないフィードの配信 URL は 404 になる。この場合はリンクにせず `-` を表示する。
 
 編集画面には、保存済みの配信内容を解析した item 一覧をフィードに書かれている順で表示する。Processor を付け替えた結果として実際に何が配信されるのかを、RSS リーダーに登録せずに確認できる。
@@ -314,7 +328,7 @@ rss-proxy feed show <name>
 rss-proxy feed rm <name>
 rss-proxy fetch <name>               # 即時取得 (サーバー停止中でも実行できる)
 
-rss-proxy proc list                  # 利用可能な Processor 種別
+rss-proxy proc list                  # 利用可能な Processor 種別と説明
 rss-proxy proc attach <feed> <kind> [--params '{"key":"link"}'] [--at N]
 rss-proxy proc detach <feed> <position>
 rss-proxy proc move <feed> <from> <to>

@@ -59,8 +59,6 @@ pub enum ProcCmd {
     },
 }
 
-pub const KINDS: &[&str] = &["google_news_cluster", "dedupe"];
-
 pub fn run(store: &Store, command: Command) -> Result<String> {
     match command {
         Command::Feed(cmd) => feed(store, cmd),
@@ -135,21 +133,32 @@ fn feed(store: &Store, cmd: FeedCmd) -> Result<String> {
 
 fn processor(store: &Store, cmd: ProcCmd) -> Result<String> {
     match cmd {
-        ProcCmd::List => Ok(KINDS.join("\n")),
+        ProcCmd::List => Ok(proc::catalog()
+            .iter()
+            .map(|info| {
+                let params = info
+                    .params
+                    .iter()
+                    .map(|p| format!("\n      {} (既定 {}) {}", p.name, p.default, p.description))
+                    .collect::<String>();
+                format!("{}\n  {}{params}", info.kind, info.summary)
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n")),
         ProcCmd::Attach {
             feed,
             kind,
             params,
             at,
         } => {
-            let params = params.unwrap_or_else(|| "{}".into());
-            // 保存前に組み立てて検証する。壊れた設定を DB に残さない
-            proc::build(&kind, &params)?;
+            // 保存前に組み立てて検証する。壊れた設定を DB に残さない。
+            // 省略されたパラメータは既定値で埋めて保存する
+            let built = proc::build(&kind, params.as_deref().unwrap_or("{}"))?;
 
             let f = find(store, &feed)?;
             let mut chain = store.processors(f.id)?;
             let at = at.unwrap_or(chain.len()).min(chain.len());
-            chain.insert(at, (kind.clone(), params));
+            chain.insert(at, (kind.clone(), built.params()));
             store.set_processors(f.id, &chain)?;
             Ok(format!("{feed} の {at} 番目に {kind} を追加しました"))
         }

@@ -257,3 +257,104 @@ async fn edit_page_of_a_never_fetched_feed_says_so() {
         .unwrap();
     assert!(body.contains("まだ取得されていません"));
 }
+
+#[tokio::test]
+async fn saving_a_chain_fills_in_default_parameters() {
+    let (base, c) = serve(|s| {
+        s.add_feed(&feed("news")).unwrap();
+    })
+    .await;
+
+    // 種別だけ書いて保存すると、既定値が埋まった形で残る
+    let res = c
+        .post(format!("{base}/ui/feeds/news/processors"))
+        .form(&[("chain", "dedupe\ngoogle_news_cluster")])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 303);
+
+    let body = c
+        .get(format!("{base}/ui/feeds/news"))
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert!(
+        body.contains(r#"dedupe {&quot;key&quot;:&quot;link&quot;}"#),
+        "既定値が書き戻されていない"
+    );
+}
+
+#[tokio::test]
+async fn edit_page_documents_each_processor() {
+    let (base, c) = serve(|s| {
+        s.add_feed(&feed("news")).unwrap();
+    })
+    .await;
+
+    let body = c
+        .get(format!("{base}/ui/feeds/news"))
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+
+    for info in rss_proxy::proc::catalog() {
+        assert!(body.contains(info.kind), "{} が載っていない", info.kind);
+        assert!(
+            body.contains(&html_escape(info.summary)),
+            "{} の説明が載っていない",
+            info.kind
+        );
+        for p in info.params {
+            assert!(body.contains(p.name));
+            assert!(body.contains(p.default));
+        }
+    }
+}
+
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
+#[tokio::test]
+async fn edit_page_shows_the_raw_fields_of_served_items() {
+    let xml = r#"<?xml version="1.0"?><rss version="2.0"><channel>
+      <title>t</title><link>https://example.com</link><description>d</description>
+      <item><title>見出し</title><link>https://example.com/1</link>
+        <guid isPermaLink="false">GUID-1</guid>
+        <pubDate>Sat, 08 Aug 2026 21:54:30 +0900</pubDate>
+        <category>ニュース</category>
+        <description>本文</description></item>
+    </channel></rss>"#;
+
+    let (base, c) = serve(|s| {
+        let id = s.add_feed(&feed("news")).unwrap();
+        s.set_output(id, xml).unwrap();
+    })
+    .await;
+
+    let body = c
+        .get(format!("{base}/ui/feeds/news"))
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+
+    // dedupe のキーを選ぶ材料として、各フィールドに何が入っているかを見せる
+    assert!(body.contains("フィールド"));
+    for field in ["guid", "link", "title", "published", "categories"] {
+        assert!(body.contains(field), "{field} が載っていない");
+    }
+    assert!(body.contains("GUID-1"));
+    assert!(body.contains("2026-08-08"), "時刻が表示される");
+}

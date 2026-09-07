@@ -174,11 +174,13 @@ pub async fn show(State(store): State<SharedStore>, Path(name): Path<String>) ->
              <p>{url}</p><p>最終取得 ({offset}): {last} / 状態: {state}</p>\
              <h2>Processor 連鎖</h2>\
              <p>1 行に 1 つ、「種別 パラメータ(JSON)」の形式で書く。並び順が適用順。<br>\
-             利用可能: {kinds}</p>\
+             パラメータを省略すると既定値で保存される。</p>\
+             {help}\
              <form method=\"post\" action=\"/ui/feeds/{name}/processors\">\
              <textarea name=\"chain\" rows=\"6\">{text}</textarea>\
              <p><button>保存</button></p></form>\
              <h2>配信中の内容</h2>{items}\
+             <h2>項目のフィールド</h2>{fields}\
              <h2>操作</h2>\
              <form method=\"post\" action=\"/ui/feeds/{name}/fetch\"><button>今すぐ取得</button></form>\
              <form method=\"post\" action=\"/ui/feeds/{name}/delete\"><button>削除</button></form>",
@@ -187,12 +189,91 @@ pub async fn show(State(store): State<SharedStore>, Path(name): Path<String>) ->
             offset = offset_label(local_offset()),
             last = last_fetch(&feed, local_offset()),
             state = status(&feed),
-            kinds = crate::cli::KINDS.join(", "),
+            help = processor_help(),
             text = escape(&text),
             items = served_items(output.as_deref()),
+            fields = item_fields(output.as_deref(), local_offset()),
         ),
     )
     .into_response()
+}
+
+/// 利用できる Processor の一覧と、それぞれのパラメータの説明。
+fn processor_help() -> String {
+    proc::catalog()
+        .iter()
+        .map(|info| {
+            let params = if info.params.is_empty() {
+                "<p><small>パラメータなし</small></p>".to_string()
+            } else {
+                info.params
+                    .iter()
+                    .map(|p| {
+                        let values = if p.values.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" 値: {}", escape(&p.values.join(" / ")))
+                        };
+                        format!(
+                            "<p><small><code>{name}</code> (既定 <code>{default}</code>){values}<br>{desc}</small></p>",
+                            name = escape(p.name),
+                            default = escape(p.default),
+                            desc = escape(p.description),
+                        )
+                    })
+                    .collect::<String>()
+            };
+            format!(
+                "<details><summary><code>{kind}</code> — {summary}</summary>{params}</details>",
+                kind = escape(info.kind),
+                summary = escape(info.summary),
+            )
+        })
+        .collect()
+}
+
+/// 配信中の item が各フィールドに何を持っているかを示す。
+/// dedupe のキーを選ぶときの材料になる。
+fn item_fields(xml: Option<&str>, offset: FixedOffset) -> String {
+    let Some(feed) = xml.and_then(|x| crate::parse::parse(x.as_bytes()).ok()) else {
+        return "<p>まだ取得されていません。</p>".into();
+    };
+    let Some(item) = feed.items.first() else {
+        return "<p>item がありません。</p>".into();
+    };
+
+    let published = item
+        .published
+        .map(|t| format_time(t.timestamp(), offset))
+        .unwrap_or_default();
+    let published_label = format!("published ({})", offset_label(offset));
+    let rows = [
+        ("guid", item.id.clone().unwrap_or_default()),
+        ("title", item.title.clone().unwrap_or_default()),
+        ("link", item.link.clone().unwrap_or_default()),
+        (published_label.as_str(), published),
+        ("authors", item.authors.join(", ")),
+        ("categories", item.categories.join(", ")),
+        (
+            "description",
+            item.description.as_deref().map(excerpt).unwrap_or_default(),
+        ),
+    ]
+    .iter()
+    .map(|(name, value)| {
+        let value = if value.is_empty() {
+            "<em>(空)</em>".to_string()
+        } else {
+            escape(value)
+        };
+        format!("<tr><td><code>{name}</code></td><td>{value}</td></tr>")
+    })
+    .collect::<String>();
+
+    format!(
+        "<p><small>1 件目の item が実際に持っている値。dedupe のキーを選ぶ材料に使う。</small></p>\
+         <table>{rows}</table>"
+    )
 }
 
 /// 配信中の XML を解析し、書かれている順に item を並べる。
@@ -310,10 +391,10 @@ fn parse_chain(text: &str) -> Result<Vec<ProcessorSpec>, String> {
         .filter(|line| !line.is_empty())
         .map(|line| {
             let (kind, params) = line.split_once(char::is_whitespace).unwrap_or((line, "{}"));
-            let params = params.trim();
-            let params = if params.is_empty() { "{}" } else { params };
-            proc::build(kind, params).map_err(|e| e.to_string())?;
-            Ok((kind.to_string(), params.to_string()))
+            let built = proc::build(kind, params.trim()).map_err(|e| e.to_string())?;
+            // 省略された項目を既定値で埋めて保存する。
+            // 行を消して書き直したときに、何を設定していたかが分かるようにするため
+            Ok((kind.to_string(), built.params()))
         })
         .collect()
 }
