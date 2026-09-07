@@ -167,3 +167,33 @@ async fn unknown_feed_pages_are_404() {
         404
     );
 }
+
+#[tokio::test]
+async fn delivery_link_appears_only_after_a_successful_fetch() {
+    let (base, c) = serve(|s| {
+        let fetched = s.add_feed(&feed("fetched")).unwrap();
+        s.set_output(fetched, "<rss/>").unwrap();
+        s.add_feed(&feed("never")).unwrap();
+    })
+    .await;
+
+    let body = c.get(&base).send().await.unwrap().text().await.unwrap();
+    assert!(body.contains(r#"href="/feeds/fetched""#));
+    // 一度も取得できていないフィードは 404 になるのでリンクにしない
+    assert!(!body.contains(r#"href="/feeds/never""#));
+}
+
+#[tokio::test]
+async fn index_shows_the_last_fetch_time() {
+    let (base, c) = serve(|s| {
+        let id = s.add_feed(&feed("news")).unwrap();
+        s.mark_success(id, None, None, 0).unwrap();
+    })
+    .await;
+
+    let body = c.get(&base).send().await.unwrap().text().await.unwrap();
+    assert!(body.contains("最終取得"), "見出しがある");
+    // 現在時刻がローカルタイムの書式で出る
+    let now = chrono::Local::now().format("%Y-%m-%d").to_string();
+    assert!(body.contains(&now), "{now} が出力に含まれていない");
+}

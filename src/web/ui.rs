@@ -6,11 +6,31 @@
 use axum::extract::{Form, Path, State};
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Redirect, Response};
+use chrono::{DateTime, FixedOffset, Local, Offset};
 use serde::Deserialize;
 
 use crate::proc;
 use crate::store::{Feed, NewFeed, ProcessorSpec, Store};
 use crate::web::SharedStore;
+
+/// UNIX 時刻を指定オフセットで表示する。
+///
+/// 上流フィードの時刻表記は GMT / Z / +0900 と揃っておらず、内部では UTC に
+/// 正規化している。画面には運用者のローカル時刻で出す。どの地域で読んでも
+/// 誤解しないよう、オフセットを必ず添える。
+pub fn format_time(unix: i64, offset: FixedOffset) -> String {
+    DateTime::from_timestamp(unix, 0)
+        .map(|t| {
+            t.with_timezone(&offset)
+                .format("%Y-%m-%d %H:%M %:z")
+                .to_string()
+        })
+        .unwrap_or_else(|| "-".into())
+}
+
+fn local_offset() -> FixedOffset {
+    Local::now().offset().fix()
+}
 
 /// 信頼できない文字列を HTML に埋め込む前に必ず通す。
 fn escape(text: &str) -> String {
@@ -51,17 +71,19 @@ pub async fn index(State(store): State<SharedStore>) -> Response {
         Err(e) => return server_error(e),
     };
 
+    let offset = local_offset();
     let rows = feeds
         .iter()
         .map(|f| {
             format!(
                 "<tr><td><a href=\"/ui/feeds/{name}\">{name}</a></td><td>{title}</td>\
-                 <td>{interval}s</td><td>{state}</td>\
-                 <td><a href=\"/feeds/{name}\">/feeds/{name}</a></td></tr>",
+                 <td>{interval}s</td><td>{last}</td><td>{state}</td><td>{delivery}</td></tr>",
                 name = escape(&f.name),
                 title = escape(f.title.as_deref().unwrap_or("-")),
                 interval = f.interval_secs,
+                last = last_fetch(f, offset),
                 state = status(f),
+                delivery = delivery(f),
             )
         })
         .collect::<String>();
@@ -70,7 +92,8 @@ pub async fn index(State(store): State<SharedStore>) -> Response {
         "rss-proxy",
         &format!(
             "<h1>フィード</h1>\
-             <table><tr><th>名前</th><th>タイトル</th><th>間隔</th><th>状態</th><th>配信</th></tr>\
+             <table><tr><th>名前</th><th>タイトル</th><th>間隔</th><th>最終取得</th>\
+             <th>状態</th><th>配信</th></tr>\
              {rows}</table>\
              <h2>登録</h2>\
              <form method=\"post\" action=\"/ui/feeds\">\
@@ -81,6 +104,24 @@ pub async fn index(State(store): State<SharedStore>) -> Response {
         ),
     )
     .into_response()
+}
+
+fn last_fetch(f: &Feed, offset: FixedOffset) -> String {
+    f.last_success_at
+        .map(|t| format_time(t, offset))
+        .unwrap_or_else(|| "-".into())
+}
+
+/// 一度も取得できていないフィードの配信 URL は 404 になる。リンクにしない。
+fn delivery(f: &Feed) -> String {
+    if f.has_output {
+        format!(
+            "<a href=\"/feeds/{name}\">/feeds/{name}</a>",
+            name = escape(&f.name)
+        )
+    } else {
+        "-".into()
+    }
 }
 
 fn status(f: &Feed) -> String {
@@ -119,7 +160,7 @@ pub async fn show(State(store): State<SharedStore>, Path(name): Path<String>) ->
         &feed.name,
         &format!(
             "<p><a href=\"/\">← 一覧</a></p><h1>{name}</h1>\
-             <p>{url}</p><p>状態: {state}</p>\
+             <p>{url}</p><p>最終取得: {last} / 状態: {state}</p>\
              <h2>Processor 連鎖</h2>\
              <p>1 行に 1 つ、「種別 パラメータ(JSON)」の形式で書く。並び順が適用順。<br>\
              利用可能: {kinds}</p>\
@@ -131,6 +172,7 @@ pub async fn show(State(store): State<SharedStore>, Path(name): Path<String>) ->
              <form method=\"post\" action=\"/ui/feeds/{name}/delete\"><button>削除</button></form>",
             name = escape(&feed.name),
             url = escape(&feed.url),
+            last = last_fetch(&feed, local_offset()),
             state = status(&feed),
             kinds = crate::cli::KINDS.join(", "),
             text = escape(&text),

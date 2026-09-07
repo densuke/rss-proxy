@@ -26,6 +26,8 @@ pub struct Feed {
     pub last_success_at: Option<i64>,
     pub last_error: Option<String>,
     pub fail_count: i64,
+    /// 一度でも取得・処理に成功して配信できる状態か
+    pub has_output: bool,
 }
 
 /// Processor 連鎖の 1 要素。(kind, params の JSON)
@@ -66,7 +68,8 @@ CREATE TABLE IF NOT EXISTS outputs (
 "#;
 
 const FEED_COLUMNS: &str = "id, name, url, title, interval_secs, enabled, etag, last_modified, \
-     next_fetch_at, last_success_at, last_error, fail_count";
+     next_fetch_at, last_success_at, last_error, fail_count, \
+     EXISTS(SELECT 1 FROM outputs o WHERE o.feed_id = feeds.id)";
 
 pub struct Store {
     conn: Connection,
@@ -257,5 +260,6 @@ fn row_to_feed(row: &rusqlite::Row) -> Result<Feed> {
         last_success_at: row.get(9)?,
         last_error: row.get(10)?,
         fail_count: row.get(11)?,
+        has_output: row.get(12)?,
     })
 }

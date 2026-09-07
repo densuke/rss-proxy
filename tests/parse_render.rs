@@ -71,3 +71,29 @@ fn render_preserves_item_content() {
 fn rejects_garbage_input() {
     assert!(parse::parse(b"not a feed at all").is_err());
 }
+
+/// 上流の時刻表記は GMT / Z / +0900 と揃っていない。
+/// 内部では UTC に正規化し、出力も UTC で書き出す。瞬間は保たれる。
+#[test]
+fn timezone_offsets_are_normalised_to_utc_without_shifting_the_instant() {
+    let src = r#"<?xml version="1.0"?><rss version="2.0"><channel>
+      <title>t</title><link>https://example.com</link><description>d</description>
+      <item><title>JST</title><link>https://example.com/1</link>
+        <pubDate>Sat, 08 Aug 2026 21:54:30 +0900</pubDate></item>
+      <item><title>GMT</title><link>https://example.com/2</link>
+        <pubDate>Sat, 08 Aug 2026 12:54:30 GMT</pubDate></item>
+    </channel></rss>"#;
+
+    let feed = parse::parse(src.as_bytes()).unwrap();
+    // +0900 の 21:54:30 と GMT の 12:54:30 は同じ瞬間
+    assert_eq!(feed.items[0].published, feed.items[1].published);
+    assert_eq!(
+        feed.items[0].published.unwrap().to_rfc3339(),
+        "2026-08-08T12:54:30+00:00"
+    );
+
+    // 出力を読み直しても瞬間が変わらない
+    let reparsed = parse::parse(render::to_rss2(&feed).as_bytes()).unwrap();
+    assert_eq!(reparsed.items[0].published, feed.items[0].published);
+    assert!(render::to_rss2(&feed).contains("+0000"));
+}
