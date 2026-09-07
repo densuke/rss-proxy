@@ -192,6 +192,29 @@ feed "google-news-headline":
   2. dedupe { key: "link" }
 ```
 
+### 5.1.1 グローバル連鎖
+
+全フィードに適用する連鎖を 1 つ持つ。**フィード固有の連鎖より先に走る。**
+
+```
+[取得] → グローバル連鎖 → フィード固有の連鎖 → [保存]
+```
+
+順序が意味を持つ。全角の正規化を先に済ませておけば、フィード側の判定を半角の表記で書ける。逆順だと `台風２４号` に対して `台風24号` という指定が一致しない。
+
+**新しい DB には既定の連鎖を入れる** (migration v3)。どのフィードでも効く整形と、広告記事の除去。
+
+```
+normalize_width {"target":"both"}
+exclude {"words":["【PR】","[PR]","PR:","【広告】","[広告]","<PR>","(PR)"],"target":"title"}
+```
+
+`normalize_width` の対象を `both` にしているのは、title だけを直すと title と description を突き合わせる処理 (`google_news_cluster`) が一致しなくなるため。実際にこの組み合わせで 1 件取りこぼす不具合が起きた。
+
+`exclude` の語は広告であることが明示された表記だけを対象にする。「広告」単体は広告業界のニュースまで落とすので入れない。正規化が先に走るので `［PR］` は `[PR]` になった状態で判定される。
+
+既定が不要なら画面か CLI から空にできる。グローバル連鎖を変えると全フィードが作り直しの対象になる。
+
 ### 5.2 v1 で実装する Processor
 
 実測で問題を確認できたものだけを実装する。trait とレジストリさえあれば追加は 1 ファイル 30 行程度なので、必要が生じてから足す。見送った Processor の仕様は 14.2 に残す。
@@ -328,6 +351,13 @@ CREATE TABLE processors (
     UNIQUE(feed_id, position)
 );
 
+CREATE TABLE global_processors (
+    id       INTEGER PRIMARY KEY,
+    position INTEGER NOT NULL UNIQUE,
+    kind     TEXT NOT NULL,
+    params   TEXT NOT NULL
+);
+
 CREATE TABLE outputs (
     feed_id      INTEGER PRIMARY KEY REFERENCES feeds(id) ON DELETE CASCADE,
     xml          TEXT NOT NULL,     -- 処理後の RSS 2.0
@@ -349,6 +379,7 @@ CREATE TABLE outputs (
 | GET | `/` | フィード一覧 |
 | GET | `/ui/feeds/:slug` | フィード編集 |
 | POST | `/ui/feeds` | フィード登録 |
+| POST | `/ui/global-processors` | 全フィード共通の連鎖の更新 |
 | POST | `/ui/feeds/:slug/rename` | 識別子・表示名・巡回間隔の変更 |
 | POST | `/ui/feeds/:slug/delete` | フィード削除 |
 | POST | `/ui/feeds/:slug/processors` | Processor 連鎖の一括更新 |
@@ -363,7 +394,7 @@ JSON API (`/api/*`) は用意しない。当初は Web UI がそれを呼ぶ想�
 
 画面は 2 枚。
 
-1. フィード一覧 (`/`) — 識別子、表示名、間隔、最終取得、状態、配信 URL。登録フォーム。最終取得の列見出しにローカルのオフセットを添える
+1. フィード一覧 (`/`) — 識別子、表示名、間隔、最終取得、状態、配信 URL。全フィード共通の連鎖の編集、登録フォーム。最終取得の列見出しにローカルのオフセットを添える
 2. フィード編集 (`/ui/feeds/:slug`) — Processor 連鎖の編集、配信中の内容の一覧、識別子と表示名の変更、即時取得、削除
 
 Processor 連鎖はテキストエリアで編集する。1 行に 1 つ、「種別 パラメータ(JSON)」の形式で書き、行の並びが適用順になる。追加・削除・並べ替えがすべてテキスト編集で済み、行ごとのボタンや並べ替え UI が不要になる。保存時にすべての行を組み立てて検証し、1 つでも不正なら 400 を返して何も保存しない。

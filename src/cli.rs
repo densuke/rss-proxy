@@ -12,9 +12,12 @@ pub enum Command {
     /// フィードの管理
     #[command(subcommand)]
     Feed(FeedCmd),
-    /// Processor 連鎖の管理
+    /// フィード固有の Processor 連鎖の管理
     #[command(subcommand)]
     Proc(ProcCmd),
+    /// 全フィード共通の Processor 連鎖の管理
+    #[command(subcommand)]
+    Global(GlobalCmd),
 }
 
 #[derive(Subcommand)]
@@ -54,6 +57,8 @@ pub enum FeedCmd {
 pub enum ProcCmd {
     /// 利用可能な Processor 種別を一覧する
     List,
+    /// 連鎖の内容を表示する
+    Show { feed: String },
     /// Processor を連鎖に追加する
     Attach {
         feed: String,
@@ -75,10 +80,30 @@ pub enum ProcCmd {
     },
 }
 
+/// 全フィード共通の連鎖。フィード固有の連鎖より先に走る。
+#[derive(Subcommand)]
+pub enum GlobalCmd {
+    /// 連鎖の内容を表示する
+    Show,
+    /// Processor を追加する
+    Attach {
+        kind: String,
+        #[arg(long)]
+        params: Option<String>,
+        #[arg(long)]
+        at: Option<usize>,
+    },
+    /// 指定位置の Processor を外す
+    Detach { position: usize },
+    /// Processor の順序を入れ替える
+    Move { from: usize, to: usize },
+}
+
 pub fn run(store: &Store, command: Command) -> Result<String> {
     match command {
         Command::Feed(cmd) => feed(store, cmd),
         Command::Proc(cmd) => processor(store, cmd),
+        Command::Global(cmd) => global(store, cmd),
     }
 }
 
@@ -197,46 +222,125 @@ fn processor(store: &Store, cmd: ProcCmd) -> Result<String> {
             })
             .collect::<Vec<_>>()
             .join("\n\n")),
+
+        ProcCmd::Show { feed } => show(store, Chain::of(store, &feed)?),
         ProcCmd::Attach {
             feed,
             kind,
             params,
             at,
-        } => {
-            // 保存前に組み立てて検証する。壊れた設定を DB に残さない。
-            // 省略されたパラメータは既定値で埋めて保存する
-            let built = proc::build(&kind, params.as_deref().unwrap_or("{}"))?;
+        } => attach(store, Chain::of(store, &feed)?, kind, params, at),
+        ProcCmd::Detach { feed, position } => detach(store, Chain::of(store, &feed)?, position),
+        ProcCmd::Move { feed, from, to } => reorder(store, Chain::of(store, &feed)?, from, to),
+    }
+}
 
-            let f = find(store, &feed)?;
-            let mut chain = store.processors(f.id)?;
-            let at = at.unwrap_or(chain.len()).min(chain.len());
-            chain.insert(at, (kind.clone(), built.params()));
-            store.set_processors(f.id, &chain)?;
-            reschedule(store, f.id)?;
-            Ok(format!("{feed} の {at} 番目に {kind} を追加しました"))
-        }
-        ProcCmd::Detach { feed, position } => {
-            let f = find(store, &feed)?;
-            let mut chain = store.processors(f.id)?;
-            if position >= chain.len() {
-                bail!("{feed} に位置 {position} の Processor はありません");
+fn global(store: &Store, cmd: GlobalCmd) -> Result<String> {
+    match cmd {
+        GlobalCmd::Show => show(store, Chain::Global),
+        GlobalCmd::Attach { kind, params, at } => attach(store, Chain::Global, kind, params, at),
+        GlobalCmd::Detach { position } => detach(store, Chain::Global, position),
+        GlobalCmd::Move { from, to } => reorder(store, Chain::Global, from, to),
+    }
+}
+
+fn show(store: &Store, target: Chain) -> Result<String> {
+    let chain = target.read(store)?;
+    if chain.is_empty() {
+        return Ok("(なし)".into());
+    }
+    Ok(chain
+        .iter()
+        .enumerate()
+        .map(|(i, (kind, params))| format!("{i}. {kind} {params}"))
+        .collect::<Vec<_>>()
+        .join("\n"))
+}
+
+fn attach(
+    store: &Store,
+    target: Chain,
+    kind: String,
+    params: Option<String>,
+    at: Option<usize>,
+) -> Result<String> {
+    // 保存前に組み立てて検証する。壊れた設定を DB に残さない。
+    // 省略されたパラメータは既定値で埋めて保存する
+    let built = proc::build(&kind, params.as_deref().unwrap_or("{}"))?;
+
+    let mut chain = target.read(store)?;
+    let at = at.unwrap_or(chain.len()).min(chain.len());
+    chain.insert(at, (kind.clone(), built.params()));
+    target.write(store, &chain)?;
+    Ok(format!("{target} の {at} 番目に {kind} を追加しました"))
+}
+
+fn detach(store: &Store, target: Chain, position: usize) -> Result<String> {
+    let mut chain = target.read(store)?;
+    if position >= chain.len() {
+        bail!("{target} に位置 {position} の Processor はありません");
+    }
+    let (kind, _) = chain.remove(position);
+    target.write(store, &chain)?;
+    Ok(format!("{target} から {kind} を外しました"))
+}
+
+fn reorder(store: &Store, target: Chain, from: usize, to: usize) -> Result<String> {
+    let mut chain = target.read(store)?;
+    if from >= chain.len() || to >= chain.len() {
+        bail!("{target} の位置指定が範囲外です (0..{})", chain.len());
+    }
+    let item = chain.remove(from);
+    chain.insert(to, item);
+    target.write(store, &chain)?;
+    Ok(format!("{target} の {from} を {to} へ移動しました"))
+}
+
+/// 操作対象の連鎖。全フィード共通か、特定フィードか。
+enum Chain {
+    Global,
+    Feed { id: i64, slug: String },
+}
+
+impl Chain {
+    fn of(store: &Store, slug: &str) -> Result<Self> {
+        let f = find(store, slug)?;
+        Ok(Self::Feed {
+            id: f.id,
+            slug: slug.to_string(),
+        })
+    }
+
+    fn read(&self, store: &Store) -> Result<Vec<crate::store::ProcessorSpec>> {
+        Ok(match self {
+            Self::Global => store.global_processors()?,
+            Self::Feed { id, .. } => store.processors(*id)?,
+        })
+    }
+
+    fn write(&self, store: &Store, chain: &[crate::store::ProcessorSpec]) -> Result<()> {
+        match self {
+            Self::Global => {
+                store.set_global_processors(chain)?;
+                // 全フィードに効くので、全部を作り直しの対象にする
+                for feed in store.list_feeds()? {
+                    reschedule(store, feed.id)?;
+                }
             }
-            let (kind, _) = chain.remove(position);
-            store.set_processors(f.id, &chain)?;
-            reschedule(store, f.id)?;
-            Ok(format!("{feed} から {kind} を外しました"))
-        }
-        ProcCmd::Move { feed, from, to } => {
-            let f = find(store, &feed)?;
-            let mut chain = store.processors(f.id)?;
-            if from >= chain.len() || to >= chain.len() {
-                bail!("{feed} の位置指定が範囲外です (0..{})", chain.len());
+            Self::Feed { id, .. } => {
+                store.set_processors(*id, chain)?;
+                reschedule(store, *id)?;
             }
-            let item = chain.remove(from);
-            chain.insert(to, item);
-            store.set_processors(f.id, &chain)?;
-            reschedule(store, f.id)?;
-            Ok(format!("{feed} の {from} を {to} へ移動しました"))
+        }
+        Ok(())
+    }
+}
+
+impl std::fmt::Display for Chain {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::Global => write!(f, "全フィード共通"),
+            Self::Feed { slug, .. } => write!(f, "{slug}"),
         }
     }
 }

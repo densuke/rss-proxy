@@ -84,8 +84,15 @@ async fn run(store: &Store, client: &Client, feed: &Feed) -> Result<(), RefreshE
         parsed.title = label.clone();
     }
 
-    let chain = store
-        .processors(feed.id)?
+    // グローバル連鎖が先、フィード固有が後。
+    // 全体に効かせたい整形 (全角の正規化など) を先に済ませてから、
+    // フィード固有の判定がその結果に対して働くようにする
+    let specs = store
+        .global_processors()?
+        .into_iter()
+        .chain(store.processors(feed.id)?)
+        .collect::<Vec<_>>();
+    let chain = specs
         .iter()
         .map(|(kind, params)| proc::build(kind, params))
         .collect::<Result<Vec<_>, _>>()?;

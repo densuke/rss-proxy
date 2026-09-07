@@ -315,3 +315,59 @@ fn changing_the_configuration_schedules_an_immediate_refetch() {
     .unwrap();
     assert!(!parked(&s), "表示名の変更後は作り直しの対象になる");
 }
+
+#[test]
+fn the_global_chain_has_its_own_subcommands() {
+    use rss_proxy::cli::GlobalCmd;
+    let s = store();
+
+    let listed = run(&s, Command::Global(GlobalCmd::Show)).unwrap();
+    assert!(listed.contains("normalize_width"), "既定の連鎖が出る");
+
+    run(
+        &s,
+        Command::Global(GlobalCmd::Attach {
+            kind: "dedupe".into(),
+            params: None,
+            at: Some(0),
+        }),
+    )
+    .unwrap();
+    assert!(
+        run(&s, Command::Global(GlobalCmd::Show))
+            .unwrap()
+            .starts_with("0. dedupe"),
+        "先頭に入る"
+    );
+
+    run(&s, Command::Global(GlobalCmd::Detach { position: 0 })).unwrap();
+    assert!(
+        !run(&s, Command::Global(GlobalCmd::Show))
+            .unwrap()
+            .contains("dedupe")
+    );
+}
+
+/// グローバル連鎖を変えたら、全フィードを作り直しの対象にする。
+#[test]
+fn changing_the_global_chain_reschedules_every_feed() {
+    use rss_proxy::cli::GlobalCmd;
+    let s = store();
+    add(&s, "one");
+    add(&s, "two");
+    for slug in ["one", "two"] {
+        let id = s.feed_by_slug(slug).unwrap().unwrap().id;
+        s.mark_success(id, Some("W/\"1\""), Some("Mon"), 9_999_999_999)
+            .unwrap();
+    }
+
+    run(&s, Command::Global(GlobalCmd::Detach { position: 0 })).unwrap();
+
+    for slug in ["one", "two"] {
+        let f = s.feed_by_slug(slug).unwrap().unwrap();
+        assert!(
+            f.etag.is_none() && f.next_fetch_at == 0,
+            "{slug} が作り直しの対象になっていない"
+        );
+    }
+}

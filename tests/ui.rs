@@ -516,3 +516,60 @@ async fn renaming_to_an_invalid_slug_is_rejected() {
         "元の識別子は変わらない"
     );
 }
+
+#[tokio::test]
+async fn the_index_shows_and_saves_the_global_chain() {
+    let (base, c) = serve(|_| {}).await;
+
+    let body = c.get(&base).send().await.unwrap().text().await.unwrap();
+    assert!(body.contains("全フィード共通"), "見出しがある");
+    assert!(
+        global_chain_text(&body).contains("normalize_width"),
+        "既定の連鎖が出る"
+    );
+
+    let res = c
+        .post(format!("{base}/ui/global-processors"))
+        .form(&[("chain", "dedupe {\"key\":\"guid\"}")])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 303);
+
+    let body = c.get(&base).send().await.unwrap().text().await.unwrap();
+    let chain = global_chain_text(&body);
+    assert!(chain.contains("dedupe"));
+    assert!(!chain.contains("normalize_width"), "置き換わっている");
+}
+
+/// 全フィード共通のテキストエリアの中身だけを取り出す。
+/// ページには Processor の説明も載るので、本文全体で判定すると誤検出する。
+fn global_chain_text(body: &str) -> String {
+    let form = body
+        .split("/ui/global-processors")
+        .nth(1)
+        .expect("フォームがある");
+    let start = form.find("<textarea").expect("textarea がある");
+    let start = form[start..].find('>').unwrap() + start + 1;
+    let end = form[start..].find("</textarea>").unwrap() + start;
+    form[start..end].to_string()
+}
+
+#[tokio::test]
+async fn an_invalid_global_chain_is_rejected_without_saving() {
+    let (base, c) = serve(|_| {}).await;
+
+    let res = c
+        .post(format!("{base}/ui/global-processors"))
+        .form(&[("chain", "telepathy")])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 400);
+
+    let body = c.get(&base).send().await.unwrap().text().await.unwrap();
+    assert!(
+        global_chain_text(&body).contains("normalize_width"),
+        "既定の連鎖が残っている"
+    );
+}

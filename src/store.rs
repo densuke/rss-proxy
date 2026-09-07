@@ -64,6 +64,14 @@ CREATE TABLE IF NOT EXISTS processors (
     UNIQUE(feed_id, position)
 );
 
+-- 全フィードに適用する Processor。フィード固有の連鎖より先に走る
+CREATE TABLE IF NOT EXISTS global_processors (
+    id       INTEGER PRIMARY KEY,
+    position INTEGER NOT NULL UNIQUE,
+    kind     TEXT NOT NULL,
+    params   TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS outputs (
     feed_id      INTEGER PRIMARY KEY REFERENCES feeds(id) ON DELETE CASCADE,
     xml          TEXT NOT NULL,
@@ -110,6 +118,10 @@ impl Store {
         if applied < 2 {
             self.drop_unused_enabled_columns()?;
             self.conn.execute_batch("PRAGMA user_version = 2")?;
+        }
+        if applied < 3 {
+            self.seed_global_processors()?;
+            self.conn.execute_batch("PRAGMA user_version = 3")?;
         }
         Ok(())
     }
@@ -234,6 +246,48 @@ impl Store {
             params![id, title],
         )?;
         Ok(())
+    }
+
+    /// グローバル連鎖の初期値。どのフィードでも効く整形と、広告記事の除去。
+    ///
+    /// 正規化を先に置く。［PR］ が [PR] になってから除外判定にかかるため。
+    /// 不要なら画面か CLI から空にできる。
+    fn seed_global_processors(&self) -> Result<()> {
+        self.set_global_processors(&[
+            // title だけを直すと、title と description を突き合わせる処理
+            // (google_news_cluster など) が一致しなくなる。両方まとめて直す
+            (
+                "normalize_width".into(),
+                r#"{"target":"both"}"#.into(),
+            ),
+            (
+                "exclude".into(),
+                // 広告であることが明示された表記だけを対象にする。
+                // 「広告」単体は広告業界のニュースまで落とすので入れない
+                r#"{"words":["【PR】","[PR]","PR:","【広告】","[広告]","<PR>","(PR)"],"target":"title"}"#
+                    .into(),
+            ),
+        ])
+    }
+
+    /// 全フィードに適用する連鎖。フィード固有の連鎖より先に走る。
+    pub fn global_processors(&self) -> Result<Vec<ProcessorSpec>> {
+        self.conn
+            .prepare("SELECT kind, params FROM global_processors ORDER BY position")?
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect()
+    }
+
+    pub fn set_global_processors(&self, chain: &[ProcessorSpec]) -> Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute("DELETE FROM global_processors", [])?;
+        for (position, (kind, params)) in chain.iter().enumerate() {
+            tx.execute(
+                "INSERT INTO global_processors (position, kind, params) VALUES (?1, ?2, ?3)",
+                params![position as i64, kind, params],
+            )?;
+        }
+        tx.commit()
     }
 
     /// 有効/無効の切り替えは CLI にも画面にも導線がなく、false になる経路がなかった。

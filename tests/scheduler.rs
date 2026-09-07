@@ -182,3 +182,59 @@ async fn clearing_the_validators_forces_a_full_fetch() {
         "設定変更が配信内容に反映される"
     );
 }
+
+/// グローバル連鎖はフィード固有の連鎖より先に走る。
+#[tokio::test]
+async fn the_global_chain_runs_before_the_feed_chain() {
+    let (url, _up) = common::serve(FIXTURE).await;
+    let store = Store::open_in_memory().unwrap();
+    store
+        .add_feed(&NewFeed {
+            slug: Some("news".into()),
+            label: None,
+            url,
+            interval_secs: 900,
+        })
+        .unwrap();
+    let feed = store.feed_by_slug("news").unwrap().unwrap();
+
+    store
+        .set_global_processors(&[("normalize_width".into(), r#"{"target":"title"}"#.into())])
+        .unwrap();
+    store
+        .set_processors(
+            feed.id,
+            // 半角化された後の表記でしか一致しない語。グローバルが先に走らないと除外できない
+            &[(
+                "exclude".into(),
+                r#"{"words":["台風24号"],"target":"title"}"#.into(),
+            )],
+        )
+        .unwrap();
+
+    refresh(&store, &rss_proxy::fetch::client(), &feed)
+        .await
+        .unwrap();
+
+    let xml = store.output("news").unwrap().unwrap();
+    let parsed = rss_proxy::parse::parse(xml.as_bytes()).unwrap();
+    let titles: Vec<&str> = parsed
+        .items
+        .iter()
+        .map(|i| i.title.as_deref().unwrap_or(""))
+        .collect();
+
+    // グローバルが走った証拠。元のフィードには全角数字が入っている
+    assert!(FIXTURE.contains("台風２４号"));
+    assert!(
+        !titles.iter().any(|t| t.contains('２')),
+        "グローバルの正規化が適用されていない"
+    );
+    // フィード固有の連鎖も、正規化後の表記で効いている
+    assert!(!titles.iter().any(|t| t.contains("台風24号")));
+    assert!(
+        parsed.items.len() < 70,
+        "除外が効いていない: {} 件",
+        parsed.items.len()
+    );
+}

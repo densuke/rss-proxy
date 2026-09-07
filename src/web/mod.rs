@@ -33,6 +33,7 @@ pub fn app_with_auth(store: Store, admin: Option<Admin>) -> Router {
     let admin_routes = Router::new()
         .route("/", get(ui::index))
         .route("/ui/feeds", post(ui::add))
+        .route("/ui/global-processors", post(ui::set_global_chain))
         .route("/ui/feeds/{name}", get(ui::show))
         .route("/ui/feeds/{name}/delete", post(ui::delete))
         .route("/ui/feeds/{name}/rename", post(ui::rename))

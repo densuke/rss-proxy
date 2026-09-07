@@ -85,6 +85,11 @@ pub async fn index(State(store): State<SharedStore>) -> Response {
         Err(e) => return server_error(e),
     };
 
+    let global_chain = match with(&store, |s| s.global_processors()) {
+        Ok(chain) => chain,
+        Err(e) => return server_error(e),
+    };
+
     let offset = local_offset();
     let rows = feeds
         .iter()
@@ -109,6 +114,13 @@ pub async fn index(State(store): State<SharedStore>) -> Response {
              <table><tr><th>名前</th><th>タイトル</th><th>間隔</th>\
              <th>最終取得 ({offset})</th><th>状態</th><th>配信</th></tr>\
              {rows}</table>\
+             <h2>全フィード共通の処理</h2>\
+             <p>ここで指定した処理が、各フィード固有の処理より<strong>先に</strong>走る。<br>\
+             全角の正規化を先に済ませておけば、フィード側の判定が半角の表記で書ける。</p>\
+             <form method=\"post\" action=\"/ui/global-processors\">\
+             <textarea name=\"chain\" rows=\"4\">{global}</textarea>\
+             <p><button>保存</button></p></form>\
+             {help}\
              <h2>登録</h2>\
              <form method=\"post\" action=\"/ui/feeds\">\
              <p>URL <input name=\"url\" type=\"url\" size=\"60\" required></p>\
@@ -118,6 +130,8 @@ pub async fn index(State(store): State<SharedStore>) -> Response {
              <p>間隔(秒) <input name=\"interval\" type=\"number\" value=\"900\" min=\"60\"></p>\
              <p><button>追加</button></p></form>",
             offset = offset_label(offset),
+            global = escape(&chain_text(&global_chain)),
+            help = processor_help(),
         ),
     )
     .into_response()
@@ -174,10 +188,7 @@ pub async fn show(State(store): State<SharedStore>, Path(name): Path<String>) ->
         Err(e) => return server_error(e),
     };
 
-    let text = chain
-        .iter()
-        .map(|(kind, params)| format!("{kind} {params}\n"))
-        .collect::<String>();
+    let text = chain_text(&chain);
 
     page(
         &feed.slug,
@@ -217,6 +228,14 @@ pub async fn show(State(store): State<SharedStore>, Path(name): Path<String>) ->
         ),
     )
     .into_response()
+}
+
+/// 連鎖を編集用のテキストにする。1 行 1 つ。
+fn chain_text(chain: &[ProcessorSpec]) -> String {
+    chain
+        .iter()
+        .map(|(kind, params)| format!("{kind} {params}\n"))
+        .collect()
 }
 
 /// 利用できる Processor の一覧と、それぞれのパラメータの説明。
@@ -469,6 +488,31 @@ pub async fn rename(
         Ok(None) => StatusCode::NOT_FOUND.into_response(),
         // 識別子の重複
         Err(e) => (StatusCode::BAD_REQUEST, format!("変更できません: {e}")).into_response(),
+    }
+}
+
+/// 全フィード共通の連鎖を置き換える。全フィードの配信内容を作り直させる。
+pub async fn set_global_chain(
+    State(store): State<SharedStore>,
+    Form(form): Form<ChainForm>,
+) -> Response {
+    let chain = match parse_chain(&form.chain) {
+        Ok(chain) => chain,
+        Err(e) => return (StatusCode::BAD_REQUEST, e).into_response(),
+    };
+
+    let saved = with(&store, |s| {
+        s.set_global_processors(&chain)?;
+        // 全フィードに効くので、全部を作り直しの対象にする
+        for feed in s.list_feeds()? {
+            s.clear_validators(feed.id)?;
+            s.set_next_fetch_at(feed.id, 0)?;
+        }
+        Ok::<_, rusqlite::Error>(())
+    });
+    match saved {
+        Ok(()) => Redirect::to("/").into_response(),
+        Err(e) => server_error(e),
     }
 }
 

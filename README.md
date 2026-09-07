@@ -51,7 +51,25 @@ DB のパスは `--db` で指定する (既定 `rss-proxy.db`)。
 
 ## Processor
 
-フィードごとに順序つきの連鎖として登録する。同じ種別を異なるパラメータで複数回登録してもよい。
+順序つきの連鎖として登録する。同じ種別を異なるパラメータで複数回登録してもよい。
+
+連鎖は 2 段ある。**全フィード共通の連鎖が先に走り、その後でフィード固有の連鎖が走る。**
+
+```
+[取得] → 全フィード共通 → フィード固有 → [配信]
+```
+
+順序が効く。全角の正規化を共通側で済ませておけば、フィード側の除外条件を半角で書ける。
+
+新しい DB には既定の共通連鎖が入る。全角の正規化と、広告記事の除去。
+
+```console
+$ rss-proxy global show
+0. normalize_width {"target":"both"}
+1. exclude {"words":["【PR】","[PR]","PR:","【広告】","[広告]","<PR>","(PR)"],"target":"title"}
+```
+
+不要なら管理画面か `rss-proxy global detach` で外せる。
 
 | 種別 | 内容 | パラメータ |
 |------|------|-----------|
@@ -90,9 +108,15 @@ rss-proxy feed set <slug> [--new-slug X] [--label Y] [--interval N]
 rss-proxy feed rm <slug>
 
 rss-proxy proc list
+rss-proxy proc show <feed>
 rss-proxy proc attach <feed> <kind> [--params JSON] [--at N]
 rss-proxy proc detach <feed> <position>
 rss-proxy proc move <feed> <from> <to>
+
+rss-proxy global show                # 全フィード共通の連鎖
+rss-proxy global attach <kind> [--params JSON] [--at N]
+rss-proxy global detach <position>
+rss-proxy global move <from> <to>
 ```
 
 ## バージョンの確認
