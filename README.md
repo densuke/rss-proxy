@@ -57,6 +57,8 @@ DB のパスは `--db` で指定する (既定 `rss-proxy.db`)。
 |------|------|-----------|
 | `google_news_cluster` | Google ニュースの description から、title と重複する先頭要素を取り除く。関連記事は残す | なし |
 | `exclude` | 指定した語を含む item を取り除く | `words`: 語の配列<br>`target`: `title` / `description` / `both` (既定 `title`) |
+| `max_age` | 指定した時間より古い item を落とす | `hours` (既定 24) |
+| `normalize_width` | 全角の英数字と記号を半角に直す。カギ括弧・句読点・なかてん・波ダッシュはそのまま | `target` (既定 `title`) |
 | `dedupe` | item 間の重複除去 | `key`: `guid` / `link` / `normalized_title` (既定 `link`) |
 
 ```console
@@ -69,6 +71,8 @@ Web UI では 1 行に 1 つ「種別 パラメータ(JSON)」の形式で書く
 ```
 google_news_cluster
 exclude {"words":["スポーツ","競馬","ABEMA"]}
+max_age {"hours":24}
+normalize_width
 dedupe {"key":"link"}
 ```
 

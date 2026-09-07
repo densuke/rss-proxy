@@ -1,10 +1,14 @@
 pub mod dedupe;
 pub mod exclude;
+pub mod max_age;
+pub mod normalize_width;
 pub mod vendor;
 
 use crate::model::Feed;
 use crate::proc::dedupe::Dedupe;
 use crate::proc::exclude::Exclude;
+use crate::proc::max_age::MaxAge;
+use crate::proc::normalize_width::NormalizeWidth;
 use crate::proc::vendor::google_news::GoogleNewsCluster;
 
 #[derive(Debug, thiserror::Error)]
@@ -65,6 +69,20 @@ const EXCLUDE_PARAMS: &[ParamInfo] = &[
     },
 ];
 
+const MAX_AGE_PARAMS: &[ParamInfo] = &[ParamInfo {
+    name: "hours",
+    description: "この時間より前の item を落とす。日時を持たない item は判断できないので残す",
+    default: "24",
+    values: &[],
+}];
+
+const NORMALIZE_WIDTH_PARAMS: &[ParamInfo] = &[ParamInfo {
+    name: "target",
+    description: "どこを直すか",
+    default: "title",
+    values: &["title", "description", "both"],
+}];
+
 const CATALOG: &[ProcessorInfo] = &[
     ProcessorInfo {
         kind: "google_news_cluster",
@@ -75,6 +93,16 @@ const CATALOG: &[ProcessorInfo] = &[
         kind: "exclude",
         summary: "指定した語を含む item を取り除く。上流の検索条件で書ききれなかった語を落とす",
         params: EXCLUDE_PARAMS,
+    },
+    ProcessorInfo {
+        kind: "max_age",
+        summary: "指定した時間より古い item を落とす",
+        params: MAX_AGE_PARAMS,
+    },
+    ProcessorInfo {
+        kind: "normalize_width",
+        summary: "全角の英数字と記号を半角に直す。カギ括弧・句読点・なかてん・波ダッシュはそのまま",
+        params: NORMALIZE_WIDTH_PARAMS,
     },
     ProcessorInfo {
         kind: "dedupe",
@@ -107,6 +135,12 @@ pub fn build(kind: &str, params: &str) -> Result<Box<dyn Processor>, ProcessorEr
         )),
         "exclude" => Ok(Box::new(
             serde_json::from_str::<Exclude>(json).map_err(parse)?,
+        )),
+        "max_age" => Ok(Box::new(
+            serde_json::from_str::<MaxAge>(json).map_err(parse)?,
+        )),
+        "normalize_width" => Ok(Box::new(
+            serde_json::from_str::<NormalizeWidth>(json).map_err(parse)?,
         )),
         other => Err(ProcessorError::UnknownKind(other.to_string())),
     }
