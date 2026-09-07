@@ -143,7 +143,10 @@ systemd unit と Caddy の設定例は [deploy/](deploy/) にある。
 ```console
 $ cargo test
 $ cargo fmt --all && cargo clippy --all-targets -- -D warnings
+$ cargo llvm-cov --summary-only    # カバレッジ
 ```
+
+カバレッジに数値目標は置いていない。目標にするとテストが実装をなぞる方向に寄り、リファクタのたびに壊れて変更を妨げる。「壊れたときに取り返しがつくか」でテストの要否を決めている。詳細は [DESIGN.md](DESIGN.md) の 11 章。
 
 Linux 上での挙動は、CI に投げる前にコンテナで確認できる。
 

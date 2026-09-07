@@ -27,6 +27,30 @@ jobs:
       - name: Test
         run: cargo test --all
 
+  # 計測して表示するだけ。しきい値では落とさない。
+  # 数値が下がったこと自体は問題ではなく、DESIGN.md 11.0 の「テストを必ず書く」
+  # 対象が無防備になっていないかを見るために使う。
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Coverage
+        run: |
+          cargo llvm-cov --summary-only | tee coverage.txt
+          {
+            echo "## カバレッジ"
+            echo
+            echo '```'
+            cat coverage.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
   audit:
     runs-on: ubuntu-latest
     steps:
