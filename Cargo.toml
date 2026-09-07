@@ -1,0 +1,11 @@
+[package]
+name = "rss-proxy"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+chrono = "0.4.45"
+feed-rs = "2.4.0"
+regex = "1.13.1"
+rss = "2.1.1"
+thiserror = "2.0.20"
