@@ -1,6 +1,6 @@
 name: Auto release
 
-# 依存を更新すると Cargo.lock が変わる。バイナリの中身が変わるので、
+# Dependabot の更新を取り込むと Cargo.lock が変わる。バイナリの中身が変わるので、
 # パッチバージョンを上げてタグを打ち、リリースを作り直す。
 on:
   push:
@@ -12,8 +12,16 @@ permissions:
 
 jobs:
   bump:
-    # 自分が作ったバージョン更新コミットで再帰しないようにする
-    if: ${{ !startsWith(github.event.head_commit.message, 'chore(release):') }}
+    # Dependabot の更新を取り込んだときだけ動く。
+    #
+    # Cargo.lock は機能追加で依存を足したときにも変わる。それを依存更新と誤認して
+    # PATCH を上げると、機能追加が PATCH として出てしまい 12.3.1 の方針に反する。
+    # 発火条件を Dependabot 由来に絞る。手動のリリースはこれまでどおりタグを打つ。
+    #
+    # 自分が作ったバージョン更新コミットで再帰しないよう chore(release): も除く。
+    if: >-
+      ${{ startsWith(github.event.head_commit.message, 'build(deps')
+          && !startsWith(github.event.head_commit.message, 'chore(release):') }}
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.bump.outputs.tag }}
