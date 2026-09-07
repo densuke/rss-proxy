@@ -44,3 +44,25 @@ async fn unreachable_host_is_an_error() {
             .is_err()
     );
 }
+
+/// 上流は信用できない。巨大な本文を送りつけられてもメモリを食い潰さない。
+#[tokio::test]
+async fn oversized_responses_are_rejected() {
+    let huge = "x".repeat(rss_proxy::fetch::MAX_BODY_BYTES + 1);
+    let (url, _up) = common::serve(&huge).await;
+
+    let err = match fetch(&client(), &url, None, None).await {
+        Err(e) => e,
+        Ok(_) => panic!("サイズ超過が素通りした"),
+    };
+    assert!(
+        err.to_string().contains("大きすぎ"),
+        "サイズ超過として扱われていない: {err}"
+    );
+}
+
+#[tokio::test]
+async fn a_body_within_the_limit_is_accepted() {
+    let (url, _up) = common::serve(FIXTURE).await;
+    assert!(fetch(&client(), &url, None, None).await.is_ok());
+}

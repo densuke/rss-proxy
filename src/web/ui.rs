@@ -230,6 +230,12 @@ pub async fn show(State(store): State<SharedStore>, Path(name): Path<String>) ->
     .into_response()
 }
 
+/// href に置いてよいスキームか。
+fn is_web_link(url: &str) -> bool {
+    let url = url.trim_start().to_ascii_lowercase();
+    url.starts_with("http://") || url.starts_with("https://")
+}
+
 /// 連鎖を編集用のテキストにする。1 行 1 つ。
 fn chain_text(chain: &[ProcessorSpec]) -> String {
     chain
@@ -337,7 +343,9 @@ fn served_items(xml: Option<&str>) -> String {
         .iter()
         .map(|item| {
             let title = escape(item.title.as_deref().unwrap_or("(タイトルなし)"));
-            let title = match &item.link {
+            // 上流の link は攻撃者が決められる。javascript: や data: を href に
+            // 置かれると、管理者がクリックした時点で管理画面上で動いてしまう
+            let title = match item.link.as_deref().filter(|l| is_web_link(l)) {
                 Some(link) => format!("<a href=\"{}\">{title}</a>", escape(link)),
                 None => title,
             };

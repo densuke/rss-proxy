@@ -573,3 +573,43 @@ async fn an_invalid_global_chain_is_rejected_without_saving() {
         "既定の連鎖が残っている"
     );
 }
+
+/// 上流フィードの <link> は攻撃者が決められる。javascript: を href に置くと、
+/// 管理者がクリックした時点で管理画面上でスクリプトが動く。
+#[tokio::test]
+async fn only_http_links_from_upstream_become_clickable() {
+    let xml = r#"<?xml version="1.0"?><rss version="2.0"><channel>
+      <title>t</title><link>https://example.com</link><description>d</description>
+      <item><title>危険</title><link>javascript:alert(1)</link></item>
+      <item><title>これも危険</title><link>data:text/html,&lt;script&gt;</link></item>
+      <item><title>安全</title><link>https://example.com/ok</link></item>
+    </channel></rss>"#;
+
+    let (base, c) = serve(|s| {
+        s.add_feed(&feed("news")).unwrap();
+        let id = s.feed_by_slug("news").unwrap().unwrap().id;
+        s.set_output(id, xml).unwrap();
+    })
+    .await;
+
+    let body = c
+        .get(format!("{base}/ui/feeds/news"))
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+
+    assert!(
+        !body.contains("href=\"javascript:"),
+        "javascript: がリンクになっている"
+    );
+    assert!(!body.contains("href=\"data:"), "data: がリンクになっている");
+    assert!(
+        body.contains("href=\"https://example.com/ok\""),
+        "通常のリンクは残る"
+    );
+    // 落としたリンクのタイトルは表示され続ける
+    assert!(body.contains("危険"));
+}
