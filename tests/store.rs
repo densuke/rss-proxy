@@ -67,14 +67,12 @@ fn lists_and_removes_feeds() {
 }
 
 #[test]
-fn due_feeds_respects_next_fetch_at_and_enabled() {
+fn due_feeds_respects_next_fetch_at() {
     let s = store();
     let due = feed_id(&s, "due");
     let later = feed_id(&s, "later");
-    let disabled = feed_id(&s, "disabled");
 
     s.mark_success(later, None, None, 5_000).unwrap();
-    s.set_enabled(disabled, false).unwrap();
 
     let ids: Vec<i64> = s
         .due_feeds(1_000)

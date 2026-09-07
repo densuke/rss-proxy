@@ -25,7 +25,6 @@ pub struct Feed {
     pub url: String,
     pub title: Option<String>,
     pub interval_secs: i64,
-    pub enabled: bool,
     pub etag: Option<String>,
     pub last_modified: Option<String>,
     pub next_fetch_at: i64,
@@ -47,7 +46,6 @@ CREATE TABLE IF NOT EXISTS feeds (
     url             TEXT NOT NULL,
     title           TEXT,
     interval_secs   INTEGER NOT NULL DEFAULT 900,
-    enabled         INTEGER NOT NULL DEFAULT 1,
     etag            TEXT,
     last_modified   TEXT,
     next_fetch_at   INTEGER NOT NULL DEFAULT 0,
@@ -63,7 +61,6 @@ CREATE TABLE IF NOT EXISTS processors (
     position INTEGER NOT NULL,
     kind     TEXT NOT NULL,
     params   TEXT NOT NULL,
-    enabled  INTEGER NOT NULL DEFAULT 1,
     UNIQUE(feed_id, position)
 );
 
@@ -74,7 +71,7 @@ CREATE TABLE IF NOT EXISTS outputs (
 );
 "#;
 
-const FEED_COLUMNS: &str = "id, slug, label, url, title, interval_secs, enabled, etag, \
+const FEED_COLUMNS: &str = "id, slug, label, url, title, interval_secs, etag, \
      last_modified, next_fetch_at, last_success_at, last_error, fail_count, \
      EXISTS(SELECT 1 FROM outputs o WHERE o.feed_id = feeds.id)";
 
@@ -109,6 +106,10 @@ impl Store {
         if applied < 1 {
             self.split_name_into_slug_and_label()?;
             self.conn.execute_batch("PRAGMA user_version = 1")?;
+        }
+        if applied < 2 {
+            self.drop_unused_enabled_columns()?;
+            self.conn.execute_batch("PRAGMA user_version = 2")?;
         }
         Ok(())
     }
@@ -183,10 +184,7 @@ impl Store {
     /// 巡回対象。有効かつ次回取得時刻を過ぎたもの。
     pub fn due_feeds(&self, now: i64) -> Result<Vec<Feed>> {
         self.query_feeds(
-            &format!(
-                "SELECT {FEED_COLUMNS} FROM feeds \
-                 WHERE enabled = 1 AND next_fetch_at <= ?1 ORDER BY id"
-            ),
+            &format!("SELECT {FEED_COLUMNS} FROM feeds WHERE next_fetch_at <= ?1 ORDER BY id"),
             [now],
         )
     }
@@ -235,6 +233,24 @@ impl Store {
             "UPDATE feeds SET title = ?2 WHERE id = ?1",
             params![id, title],
         )?;
+        Ok(())
+    }
+
+    /// 有効/無効の切り替えは CLI にも画面にも導線がなく、false になる経路がなかった。
+    /// 使う場面が出たら列ごと足し直す。
+    fn drop_unused_enabled_columns(&self) -> Result<()> {
+        for table in ["feeds", "processors"] {
+            let exists = self
+                .conn
+                .prepare(&format!(
+                    "SELECT 1 FROM pragma_table_info('{table}') WHERE name = 'enabled'"
+                ))?
+                .exists([])?;
+            if exists {
+                self.conn
+                    .execute_batch(&format!("ALTER TABLE {table} DROP COLUMN enabled"))?;
+            }
+        }
         Ok(())
     }
 
@@ -292,10 +308,7 @@ impl Store {
 
     pub fn processors(&self, feed_id: i64) -> Result<Vec<ProcessorSpec>> {
         self.conn
-            .prepare(
-                "SELECT kind, params FROM processors \
-                 WHERE feed_id = ?1 AND enabled = 1 ORDER BY position",
-            )?
+            .prepare("SELECT kind, params FROM processors WHERE feed_id = ?1 ORDER BY position")?
             .query_map([feed_id], |r| Ok((r.get(0)?, r.get(1)?)))?
             .collect()
     }
@@ -341,13 +354,12 @@ fn row_to_feed(row: &rusqlite::Row) -> Result<Feed> {
         url: row.get(3)?,
         title: row.get(4)?,
         interval_secs: row.get(5)?,
-        enabled: row.get(6)?,
-        etag: row.get(7)?,
-        last_modified: row.get(8)?,
-        next_fetch_at: row.get(9)?,
-        last_error: row.get(11)?,
-        last_success_at: row.get(10)?,
-        fail_count: row.get(12)?,
-        has_output: row.get(13)?,
+        etag: row.get(6)?,
+        last_modified: row.get(7)?,
+        next_fetch_at: row.get(8)?,
+        last_success_at: row.get(9)?,
+        last_error: row.get(10)?,
+        fail_count: row.get(11)?,
+        has_output: row.get(12)?,
     })
 }

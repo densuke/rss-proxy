@@ -1,5 +1,5 @@
 use rss_proxy::proc::Processor;
-use rss_proxy::proc::vendor::google_news::GoogleNewsCluster;
+use rss_proxy::proc::google_news::GoogleNewsCluster;
 use rss_proxy::{model::Item, parse};
 
 const FIXTURE: &str = include_str!("fixtures/google_news_headline.xml");

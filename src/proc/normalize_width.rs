@@ -9,7 +9,7 @@
 //! 日本語で区間を表す記号として使われるので明示的に除く。
 
 use crate::model::Feed;
-use crate::proc::{Processor, ProcessorError};
+use crate::proc::{Processor, ProcessorError, Target};
 
 /// 全角 ASCII の開始位置と、半角との差。
 const FULL_WIDTH_START: char = '\u{FF01}';
@@ -17,15 +17,6 @@ const FULL_WIDTH_END: char = '\u{FF5E}';
 const OFFSET: u32 = 0xFEE0;
 /// 全角チルダ。範囲内だが日本語の記号として使われるので変換しない
 const FULL_WIDTH_TILDE: char = '\u{FF5E}';
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Target {
-    #[default]
-    Title,
-    Description,
-    Both,
-}
 
 #[derive(Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
@@ -44,10 +35,10 @@ impl Processor for NormalizeWidth {
 
     fn apply(&self, mut feed: Feed) -> Result<Feed, ProcessorError> {
         for item in &mut feed.items {
-            if matches!(self.target, Target::Title | Target::Both) {
+            if self.target.includes_title() {
                 item.title = item.title.as_deref().map(to_half_width);
             }
-            if matches!(self.target, Target::Description | Target::Both) {
+            if self.target.includes_description() {
                 item.description = item.description.as_deref().map(to_half_width);
             }
         }

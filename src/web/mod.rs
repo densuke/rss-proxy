@@ -1,13 +1,17 @@
 pub mod guard;
-pub mod serve;
 pub mod ui;
 
 use std::sync::{Arc, Mutex};
 
 use axum::Router;
+use axum::extract::Path;
+use axum::http::{StatusCode, header};
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 
 use crate::auth::Admin;
+use axum::extract::State;
+
 use crate::store::Store;
 
 // ponytail: 1 接続を Mutex で共有。rusqlite の Connection は Sync ではないため。
@@ -41,7 +45,7 @@ pub fn app_with_auth(store: Store, admin: Option<Admin>) -> Router {
 
     Router::new()
         // 配信は URL を知っていれば読める。ここに認証をかけると RSS リーダーが読めなくなる
-        .route("/feeds/{name}", get(serve::feed))
+        .route("/feeds/{slug}", get(feed))
         // 稼働中のバージョンを機械的に取得できるようにする。更新の有無の確認に使う
         .route(
             "/healthz",
@@ -54,4 +58,23 @@ pub fn app_with_auth(store: Store, admin: Option<Admin>) -> Router {
         )
         .merge(admin_routes)
         .with_state(state)
+}
+
+/// 処理済みフィードの配信。保存済みの出力を返すだけで、上流には触らない。
+pub async fn feed(State(store): State<SharedStore>, Path(slug): Path<String>) -> Response {
+    let output = store.lock().expect("store lock").output(&slug);
+
+    match output {
+        Ok(Some(xml)) => (
+            [(header::CONTENT_TYPE, "application/rss+xml; charset=utf-8")],
+            xml,
+        )
+            .into_response(),
+        // 未登録のフィードも、まだ一度も取得できていないフィードも 404
+        Ok(None) => StatusCode::NOT_FOUND.into_response(),
+        Err(e) => {
+            eprintln!("serve {slug}: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
 }

@@ -7,7 +7,6 @@
 //! Cookie の属性も CSRF トークンも要らない。パスワードは argon2 のハッシュで保持する。
 
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
-use subtle::ConstantTimeEq;
 
 pub const USER_ENV: &str = "RSS_PROXY_ADMIN_USER";
 pub const HASH_ENV: &str = "RSS_PROXY_ADMIN_PASSWORD_HASH";
@@ -35,9 +34,10 @@ impl Admin {
     }
 
     pub fn authenticates(&self, user: &str, password: &str) -> bool {
-        // ユーザー名は秘密ではないが、比較時間から推測されないようにしておく
-        let user_ok: bool = user.as_bytes().ct_eq(self.user.as_bytes()).into();
-        // ユーザー名が違っても検証は行う。応答時間で存在を判別されないため
+        // ユーザー名が違っても検証は行う。応答時間で存在を判別されないため。
+        // ユーザー名自体は秘密ではなく、隣で走る argon2 の検証 (100ms 前後) が
+        // 文字列比較の時間差を覆い隠すので、定数時間比較は使わない
+        let user_ok = user == self.user;
         let password_ok = verify_password(&self.password_hash, password);
         user_ok && password_ok
     }

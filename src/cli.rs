@@ -141,14 +141,13 @@ fn feed(store: &Store, cmd: FeedCmd) -> Result<String> {
                 chain.join("\n")
             };
             Ok(format!(
-                "slug: {}\nlabel: {}\nurl: {}\ntitle: {}\ninterval: {}s\nenabled: {}\n\
+                "slug: {}\nlabel: {}\nurl: {}\ntitle: {}\ninterval: {}s\n\
                  processors:\n{chain}",
                 f.slug,
                 f.label.as_deref().unwrap_or("-"),
                 f.url,
                 f.title.as_deref().unwrap_or("-"),
                 f.interval_secs,
-                f.enabled,
             ))
         }
         FeedCmd::Set {

@@ -90,7 +90,7 @@ async fn run(store: &Store, client: &Client, feed: &Feed) -> Result<(), RefreshE
         .map(|(kind, params)| proc::build(kind, params))
         .collect::<Result<Vec<_>, _>>()?;
 
-    let processed = proc::apply_chain(&chain, parsed)?;
+    let processed = chain.iter().try_fold(parsed, |feed, p| p.apply(feed))?;
 
     store.set_output(feed.id, &render::to_rss2(&processed))?;
     if !title.is_empty() {

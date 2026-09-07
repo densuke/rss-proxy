@@ -1,6 +1,7 @@
 use rss_proxy::model::{Feed, Item};
 use rss_proxy::proc::Processor;
-use rss_proxy::proc::exclude::{Exclude, Target};
+use rss_proxy::proc::Target;
+use rss_proxy::proc::exclude::Exclude;
 
 fn item(title: &str, description: &str) -> Item {
     Item {

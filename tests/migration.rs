@@ -80,3 +80,39 @@ fn url_safe_names_keep_their_address_and_others_get_a_random_one() {
 
     std::fs::remove_file(&path).ok();
 }
+
+/// 誰も false にできない列だった。移行で落とす。
+#[test]
+fn the_unused_enabled_columns_are_dropped() {
+    let dir = std::env::temp_dir().join(format!("rss-proxy-enabled-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("enabled.db");
+    let _ = std::fs::remove_file(&path);
+    legacy_db(&path);
+
+    let store = Store::open(&path).unwrap();
+    assert_eq!(
+        store.list_feeds().unwrap().len(),
+        2,
+        "移行でデータは失われない"
+    );
+    assert_eq!(store.processors(1).unwrap().len(), 1);
+
+    let conn = Connection::open(&path).unwrap();
+    for table in ["feeds", "processors"] {
+        let remains: bool = conn
+            .prepare(&format!(
+                "SELECT 1 FROM pragma_table_info('{table}') WHERE name = 'enabled'"
+            ))
+            .unwrap()
+            .exists([])
+            .unwrap();
+        assert!(!remains, "{table}.enabled が残っている");
+    }
+
+    // 2 回目の起動でも壊れない
+    drop(store);
+    assert_eq!(Store::open(&path).unwrap().list_feeds().unwrap().len(), 2);
+
+    std::fs::remove_file(&path).ok();
+}

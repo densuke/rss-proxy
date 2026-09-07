@@ -1,15 +1,15 @@
 pub mod dedupe;
 pub mod exclude;
+pub mod google_news;
 pub mod max_age;
 pub mod normalize_width;
-pub mod vendor;
 
 use crate::model::Feed;
 use crate::proc::dedupe::Dedupe;
 use crate::proc::exclude::Exclude;
+use crate::proc::google_news::GoogleNewsCluster;
 use crate::proc::max_age::MaxAge;
 use crate::proc::normalize_width::NormalizeWidth;
-use crate::proc::vendor::google_news::GoogleNewsCluster;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProcessorError {
@@ -29,6 +29,26 @@ pub trait Processor: Send + Sync {
     /// 「何を設定したのか」が後から画面上で分かる。
     fn params(&self) -> String {
         "{}".into()
+    }
+}
+
+/// item のどのフィールドを見るか。複数の Processor が同じ選択肢を持つ。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Target {
+    #[default]
+    Title,
+    Description,
+    Both,
+}
+
+impl Target {
+    pub fn includes_title(self) -> bool {
+        matches!(self, Self::Title | Self::Both)
+    }
+
+    pub fn includes_description(self) -> bool {
+        matches!(self, Self::Description | Self::Both)
     }
 }
 
@@ -144,9 +164,4 @@ pub fn build(kind: &str, params: &str) -> Result<Box<dyn Processor>, ProcessorEr
         )),
         other => Err(ProcessorError::UnknownKind(other.to_string())),
     }
-}
-
-/// 連鎖を順に適用する。
-pub fn apply_chain(chain: &[Box<dyn Processor>], feed: Feed) -> Result<Feed, ProcessorError> {
-    chain.iter().try_fold(feed, |f, p| p.apply(f))
 }

@@ -8,10 +8,6 @@ use chrono::{Duration, Utc};
 use crate::model::Feed;
 use crate::proc::{Processor, ProcessorError};
 
-fn default_hours() -> i64 {
-    24
-}
-
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct MaxAge {
@@ -21,9 +17,7 @@ pub struct MaxAge {
 
 impl Default for MaxAge {
     fn default() -> Self {
-        Self {
-            hours: default_hours(),
-        }
+        Self { hours: 24 }
     }
 }
 

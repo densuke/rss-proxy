@@ -5,16 +5,7 @@
 
 use crate::html::to_plain_text;
 use crate::model::{Feed, Item};
-use crate::proc::{Processor, ProcessorError};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Target {
-    #[default]
-    Title,
-    Description,
-    Both,
-}
+use crate::proc::{Processor, ProcessorError, Target};
 
 #[derive(Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
@@ -48,11 +39,11 @@ impl Processor for Exclude {
 impl Exclude {
     fn matches(&self, item: &Item, words: &[String]) -> bool {
         let mut haystack = String::new();
-        if matches!(self.target, Target::Title | Target::Both) {
+        if self.target.includes_title() {
             haystack.push_str(item.title.as_deref().unwrap_or_default());
             haystack.push('\n');
         }
-        if matches!(self.target, Target::Description | Target::Both) {
+        if self.target.includes_description() {
             haystack.push_str(&to_plain_text(
                 item.description.as_deref().unwrap_or_default(),
             ));
