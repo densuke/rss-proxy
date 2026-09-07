@@ -77,7 +77,14 @@ rss-proxy proc move <feed> <from> <to>
 
 ## 運用
 
-Linux / AMD64 向けの静的リンク済みバイナリを GitHub Releases で配布している。glibc のバージョンに依存しない。
+GitHub Releases で以下のバイナリを配布している。
+
+| ターゲット | 用途 |
+|-----------|------|
+| `x86_64-unknown-linux-musl` | Linux / AMD64。静的リンク済みで glibc のバージョンに依存しない |
+| `aarch64-apple-darwin` | macOS / Apple Silicon |
+
+Linux 環境の更新は同梱のスクリプトで行う。最新リリースを取得し、SHA256 を検証してから差し替え、サービスを再起動する。
 
 ```console
 $ REPO=<owner>/rss-proxy deploy/update.sh
@@ -95,6 +102,12 @@ systemd unit と Caddy の設定例は [deploy/](deploy/) にある。
 $ cargo test
 $ cargo fmt --all && cargo clippy --all-targets -- -D warnings
 ```
+
+### リリース
+
+`v*` タグを push すると、両ターゲットのバイナリと SHA256 が Releases に添付される。
+
+依存の更新は Dependabot が毎週 PR を出す。それを main にマージすると `Cargo.lock` が変わり、パッチバージョンを 1 つ上げたタグが自動で打たれてリリースが作り直される。同梱される依存が変わればバイナリの中身も変わるため、バージョンで区別できるようにしている。
 
 テストは実際に取得した Google ニュースのフィード (`tests/fixtures/`) を固定入力に使う。Processor はいずれも `Feed -> Feed` の純粋関数なので、単体テストで挙動を固定できる。
 

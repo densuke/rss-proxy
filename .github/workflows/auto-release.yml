@@ -1,0 +1,51 @@
+name: Auto release
+
+# 依存を更新すると Cargo.lock が変わる。バイナリの中身が変わるので、
+# パッチバージョンを上げてタグを打ち、リリースを作り直す。
+on:
+  push:
+    branches: [main]
+    paths: ["Cargo.lock"]
+
+permissions:
+  contents: write
+
+jobs:
+  bump:
+    # 自分が作ったバージョン更新コミットで再帰しないようにする
+    if: ${{ !startsWith(github.event.head_commit.message, 'chore(release):') }}
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.bump.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Bump patch version
+        id: bump
+        run: |
+          set -eu
+          CURRENT=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
+          NEXT=$(echo "$CURRENT" | awk -F. '{printf "%s.%s.%d", $1, $2, $3 + 1}')
+          echo "$CURRENT -> $NEXT"
+
+          # 行頭の version は [package] のものだけ。依存はインラインテーブル内なので一致しない
+          sed -i "s/^version = \"$CURRENT\"$/version = \"$NEXT\"/" Cargo.toml
+          grep -q "^version = \"$NEXT\"$" Cargo.toml
+          cargo update --workspace
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "chore(release): v$NEXT (依存更新に伴うリビルド)"
+          git tag "v$NEXT"
+          git push origin HEAD --tags
+
+          echo "tag=v$NEXT" >> "$GITHUB_OUTPUT"
+
+  release:
+    needs: bump
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.bump.outputs.tag }}
+    permissions:
+      contents: write

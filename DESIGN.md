@@ -398,14 +398,30 @@ cargo install cargo-audit && cargo audit
 
 ### 12.3 リリース (`.github/workflows/release.yml`)
 
-`v*` タグの push で起動する。
+`v*` タグの push で起動する。`auto-release.yml` からも呼び出せるよう `workflow_call` を受け付ける。
 
-- `ubuntu-latest` 上で `x86_64-unknown-linux-musl` 向けにビルドする
-- 事前に `rustup target add x86_64-unknown-linux-musl` と `apt-get install -y musl-tools` が必要になる。rusqlite の `bundled` は SQLite の C ソースをコンパイルするため、musl 向けの C コンパイラが要る
-- musl による完全静的リンクにより、運用環境の glibc バージョンに依存しない単一バイナリになる
-- 成果物 `rss-proxy-x86_64-linux-musl.tar.gz` と SHA256 チェックサムを GitHub Releases に添付する
+以下の 2 ターゲットをマトリクスでビルドする。
+
+| ターゲット | ランナー | 備考 |
+|-----------|---------|------|
+| `x86_64-unknown-linux-musl` | ubuntu-latest | 運用環境。musl による完全静的リンクで glibc のバージョンに依存しない |
+| `aarch64-apple-darwin` | macos-latest | 開発環境で動かす用 |
+
+musl ビルドでは事前に `apt-get install -y musl-tools` が必要になる。rusqlite の `bundled` フィーチャが SQLite の C ソースをコンパイルするため、musl 向けの C コンパイラが要る。
+
+成果物は `rss-proxy-<target>.tar.gz` と SHA256 チェックサムで、GitHub Releases に添付する。
+
+リリースビルドでは LTO を有効にし、コード生成単位を 1 にまとめ、シンボルを除去する (`[profile.release]`)。常駐プロセスなのでビルド時間より生成物の質を優先する。
 
 Docker イメージは作らない。静的単一バイナリのほうが軽量で、運用も単純になる。必要になった時点で追加する。
+
+### 12.3.1 依存更新と自動リリース
+
+Dependabot が cargo と github-actions の更新 PR を毎週出す。cargo 側はパッチ・マイナーをまとめて 1 本の PR にする。
+
+依存が更新されるとバイナリの中身が変わるため、バージョンで区別できないと配布物を追跡できない。`auto-release.yml` が `Cargo.lock` の変更を検知してパッチバージョンを 1 つ上げ、タグを打ち、`release.yml` を呼び出す。
+
+再帰しないよう、自身が作る `chore(release):` で始まるコミットでは起動しない。またタグ push を GITHUB_TOKEN で行うと他のワークフローが起動しないため、タグ push に反応させるのではなく `workflow_call` で直接呼び出している。
 
 ### 12.4 運用構成
 

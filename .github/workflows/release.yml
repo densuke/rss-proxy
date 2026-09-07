@@ -1,42 +1,73 @@
 name: Release
 
+# タグ push で直接、または auto-release から呼び出されて動く。
 on:
   push:
     tags: ["v*"]
+  workflow_call:
+    inputs:
+      tag:
+        description: リリースするタグ
+        type: string
+        required: true
 
 permissions:
   contents: write
 
-env:
-  TARGET: x86_64-unknown-linux-musl
-
 jobs:
-  release:
-    runs-on: ubuntu-latest
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+          - os: macos-latest
+            target: aarch64-apple-darwin
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: x86_64-unknown-linux-musl
+          targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
 
       # rusqlite の bundled フィーチャが SQLite の C ソースをコンパイルするため、
       # musl 向けの C コンパイラが必要になる
       - name: Install musl toolchain
+        if: matrix.target == 'x86_64-unknown-linux-musl'
         run: sudo apt-get update && sudo apt-get install -y musl-tools
 
       - name: Build
-        run: cargo build --release --target "$TARGET"
+        run: cargo build --release --target ${{ matrix.target }}
 
       - name: Package
         run: |
-          NAME="rss-proxy-${TARGET}"
-          tar -C "target/${TARGET}/release" -czf "${NAME}.tar.gz" rss-proxy
-          sha256sum "${NAME}.tar.gz" > "${NAME}.tar.gz.sha256"
+          NAME="rss-proxy-${{ matrix.target }}"
+          tar -C "target/${{ matrix.target }}/release" -czf "${NAME}.tar.gz" rss-proxy
+          shasum -a 256 "${NAME}.tar.gz" > "${NAME}.tar.gz.sha256"
 
-      - name: Publish
-        uses: softprops/action-gh-release@v2
+      - uses: actions/upload-artifact@v4
         with:
+          name: rss-proxy-${{ matrix.target }}
+          path: rss-proxy-*.tar.gz*
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
           files: |
             rss-proxy-*.tar.gz
             rss-proxy-*.tar.gz.sha256
