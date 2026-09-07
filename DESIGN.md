@@ -448,7 +448,7 @@ cargo install cargo-audit && cargo audit
 
 musl ビルドでは事前に `apt-get install -y musl-tools` が必要になる。rusqlite の `bundled` フィーチャが SQLite の C ソースをコンパイルするため、musl 向けの C コンパイラが要る。
 
-### 12.3.2 CI へ投げる前の Linux 確認
+### 12.3.3 CI へ投げる前の Linux 確認
 
 `scripts/check-linux.sh` が Linux コンテナ内で musl ビルド、テスト、常駐時の RSS 測定を行う。
 
@@ -466,7 +466,20 @@ musl ビルドでは事前に `apt-get install -y musl-tools` が必要になる
 
 Docker イメージは作らない。静的単一バイナリのほうが軽量で、運用も単純になる。必要になった時点で追加する。
 
-### 12.3.1 依存更新と自動リリース
+### 12.3.1 バージョンの付け方
+
+`0.MINOR.PATCH` の 2 桁を用途で分ける。
+
+| 桁 | 意味 | 誰が上げるか |
+|----|------|-------------|
+| MINOR | 機能追加、挙動の変更 | 手動 |
+| PATCH | 依存更新に伴うリビルド、バグ修正 | auto-release / 手動 |
+
+`auto-release.yml` は PATCH しか上げない。機能追加を PATCH に混ぜると、番号を見ただけでは依存更新なのか機能追加なのか区別できなくなる。
+
+Cargo の 0.x の慣行では `0.1.x` と `0.2.0` は非互換として扱われるが、これはライブラリとして依存される場合の話であり、単体バイナリでは影響しない。
+
+### 12.3.2 依存更新と自動リリース
 
 Dependabot が cargo と github-actions の更新 PR を毎週出す。cargo 側はパッチ・マイナーをまとめて 1 本の PR にする。
 
