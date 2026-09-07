@@ -46,10 +46,31 @@ fn converts_full_width_digits_and_letters() {
     );
 }
 
+/// 全角チルダを除き、ASCII に対応がある全角文字はすべて半角にする。
 #[test]
-fn converts_full_width_symbols() {
+fn converts_every_full_width_ascii_except_the_tilde() {
     let out = apply(Target::Title, "（９月６日　１８時００分発表）！？＆＃", "");
     assert_eq!(out.title.as_deref(), Some("(9月6日　18時00分発表)!?&#"));
+
+    // コロンも対象。日本語の記号ではなく ASCII に対応がある
+    let out = apply(Target::Title, "真相・ニュースの現場から：単独潜水", "");
+    assert_eq!(
+        out.title.as_deref(),
+        Some("真相・ニュースの現場から:単独潜水")
+    );
+
+    // 範囲内の全角文字を総当たりで確認する
+    let source: String = ('\u{FF01}'..='\u{FF5E}').collect();
+    let converted = apply(Target::Title, &source, "");
+    let converted = converted.title.unwrap();
+    for (from, to) in source.chars().zip(converted.chars()) {
+        if from == '\u{FF5E}' {
+            assert_eq!(to, from, "全角チルダだけは残す");
+        } else {
+            assert_eq!(to as u32, from as u32 - 0xFEE0, "{from} が半角にならない");
+            assert!(to.is_ascii(), "{to} が ASCII でない");
+        }
+    }
 }
 
 #[test]
