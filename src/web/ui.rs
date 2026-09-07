@@ -49,6 +49,8 @@ fn escape(text: &str) -> String {
         .replace('\'', "&#39;")
 }
 
+const SLUG_RULE: &str = "識別子は英数字と - _ のみ、3〜64 文字にしてください (URL に載せるため)";
+
 const STYLE: &str = "<style>
 body{font-family:system-ui,sans-serif;margin:2rem auto;max-width:60rem;line-height:1.6}
 table{border-collapse:collapse;width:100%}th,td{border:1px solid #ccc;padding:.4rem;text-align:left}
@@ -90,8 +92,8 @@ pub async fn index(State(store): State<SharedStore>) -> Response {
             format!(
                 "<tr><td><a href=\"/ui/feeds/{name}\">{name}</a></td><td>{title}</td>\
                  <td>{interval}s</td><td>{last}</td><td>{state}</td><td>{delivery}</td></tr>",
-                name = escape(&f.name),
-                title = escape(f.title.as_deref().unwrap_or("-")),
+                name = escape(&f.slug),
+                title = escape(display_name(f)),
                 interval = f.interval_secs,
                 last = last_fetch(f, offset),
                 state = status(f),
@@ -109,14 +111,21 @@ pub async fn index(State(store): State<SharedStore>) -> Response {
              {rows}</table>\
              <h2>登録</h2>\
              <form method=\"post\" action=\"/ui/feeds\">\
-             <p>名前 <input name=\"name\" required pattern=\"[A-Za-z0-9_-]+\"></p>\
              <p>URL <input name=\"url\" type=\"url\" size=\"60\" required></p>\
+             <p>表示名 <input name=\"label\" size=\"30\"> <small>省略すると上流のタイトル</small></p>\
+             <p>識別子 <input name=\"slug\" pattern=\"[A-Za-z0-9_-]{{3,64}}\"> \
+             <small>配信 URL に使う。省略すると推測されにくい乱数</small></p>\
              <p>間隔(秒) <input name=\"interval\" type=\"number\" value=\"900\" min=\"60\"></p>\
              <p><button>追加</button></p></form>",
             offset = offset_label(offset),
         ),
     )
     .into_response()
+}
+
+/// 画面に出す名前。利用者が付けた表示名があればそれ、なければ上流の title。
+fn display_name(f: &Feed) -> &str {
+    f.label.as_deref().or(f.title.as_deref()).unwrap_or("-")
 }
 
 fn last_fetch(f: &Feed, offset: FixedOffset) -> String {
@@ -130,7 +139,7 @@ fn delivery(f: &Feed) -> String {
     if f.has_output {
         format!(
             "<a href=\"/feeds/{name}\">/feeds/{name}</a>",
-            name = escape(&f.name)
+            name = escape(&f.slug)
         )
     } else {
         "-".into()
@@ -151,7 +160,7 @@ fn status(f: &Feed) -> String {
 
 pub async fn show(State(store): State<SharedStore>, Path(name): Path<String>) -> Response {
     let found = with(&store, |s| {
-        let Some(feed) = s.feed_by_name(&name)? else {
+        let Some(feed) = s.feed_by_slug(&name)? else {
             return Ok(None);
         };
         let chain = s.processors(feed.id)?;
@@ -171,7 +180,7 @@ pub async fn show(State(store): State<SharedStore>, Path(name): Path<String>) ->
         .collect::<String>();
 
     page(
-        &feed.name,
+        &feed.slug,
         &format!(
             "<p><a href=\"/\">← 一覧</a></p><h1>{name}</h1>\
              <p>{url}</p><p>最終取得 ({offset}): {last} / 状態: {state}</p>\
@@ -184,16 +193,25 @@ pub async fn show(State(store): State<SharedStore>, Path(name): Path<String>) ->
              <p><button>保存</button></p></form>\
              <h2>配信中の内容</h2>{items}\
              <h2>項目のフィールド</h2>{fields}\
+             <h2>設定</h2>\
+             <form method=\"post\" action=\"/ui/feeds/{name}/rename\">\
+             <p>識別子 <input name=\"slug\" value=\"{name}\" pattern=\"[A-Za-z0-9_-]{{3,64}}\" required> \
+             <small>変更すると配信 URL が変わり、購読中の登録が切れる</small></p>\
+             <p>表示名 <input name=\"label\" value=\"{label}\" size=\"30\"></p>\
+             <p>巡回間隔(秒) <input name=\"interval\" type=\"number\" value=\"{interval}\" min=\"60\"></p>\
+             <p><button>保存</button></p></form>\
              <h2>操作</h2>\
              <form method=\"post\" action=\"/ui/feeds/{name}/fetch\"><button>今すぐ取得</button></form>\
              <form method=\"post\" action=\"/ui/feeds/{name}/delete\"><button>削除</button></form>",
-            name = escape(&feed.name),
+            name = escape(&feed.slug),
             url = escape(&feed.url),
             offset = offset_label(local_offset()),
             last = last_fetch(&feed, local_offset()),
             state = status(&feed),
             help = processor_help(),
             text = escape(&text),
+            label = escape(feed.label.as_deref().unwrap_or_default()),
+            interval = feed.interval_secs,
             items = served_items(output.as_deref()),
             fields = item_fields(output.as_deref(), local_offset()),
         ),
@@ -329,15 +347,25 @@ fn excerpt(html: &str) -> String {
 
 #[derive(Deserialize)]
 pub struct AddForm {
-    name: String,
     url: String,
+    /// 空なら乱数から作る
+    slug: String,
+    /// 空なら上流フィードのタイトルを使う
+    label: String,
     interval: i64,
 }
 
 pub async fn add(State(store): State<SharedStore>, Form(form): Form<AddForm>) -> Response {
+    let slug = form.slug.trim().to_string();
+    if !slug.is_empty() && !crate::slug::is_valid(&slug) {
+        return (StatusCode::BAD_REQUEST, SLUG_RULE).into_response();
+    }
+
+    let label = form.label.trim().to_string();
     let added = with(&store, |s| {
         s.add_feed(&NewFeed {
-            name: form.name,
+            slug: (!slug.is_empty()).then_some(slug),
+            label: (!label.is_empty()).then_some(label),
             url: form.url,
             interval_secs: form.interval,
         })
@@ -373,7 +401,7 @@ pub async fn set_chain(
     };
 
     let saved = with(&store, |s| {
-        let Some(feed) = s.feed_by_name(&name)? else {
+        let Some(feed) = s.feed_by_slug(&name)? else {
             return Ok(false);
         };
         s.set_processors(feed.id, &chain)?;
@@ -402,10 +430,48 @@ fn parse_chain(text: &str) -> Result<Vec<ProcessorSpec>, String> {
         .collect()
 }
 
+#[derive(Deserialize)]
+pub struct RenameForm {
+    slug: String,
+    label: String,
+    interval: i64,
+}
+
+pub async fn rename(
+    State(store): State<SharedStore>,
+    Path(name): Path<String>,
+    Form(form): Form<RenameForm>,
+) -> Response {
+    let slug = form.slug.trim().to_string();
+    if !crate::slug::is_valid(&slug) {
+        return (StatusCode::BAD_REQUEST, SLUG_RULE).into_response();
+    }
+    let label = form.label.trim().to_string();
+
+    let renamed = with(&store, |s| {
+        let Some(feed) = s.feed_by_slug(&name)? else {
+            return Ok(None);
+        };
+        s.rename(
+            feed.id,
+            &slug,
+            (!label.is_empty()).then_some(label.as_str()),
+        )?;
+        s.set_interval(feed.id, form.interval)?;
+        Ok::<_, rusqlite::Error>(Some(()))
+    });
+    match renamed {
+        Ok(Some(())) => Redirect::to(&format!("/ui/feeds/{slug}")).into_response(),
+        Ok(None) => StatusCode::NOT_FOUND.into_response(),
+        // 識別子の重複
+        Err(e) => (StatusCode::BAD_REQUEST, format!("変更できません: {e}")).into_response(),
+    }
+}
+
 /// 次回取得時刻を過去にして、次の tick で拾わせる。
 pub async fn fetch_now(State(store): State<SharedStore>, Path(name): Path<String>) -> Response {
     let marked = with(&store, |s| {
-        let Some(feed) = s.feed_by_name(&name)? else {
+        let Some(feed) = s.feed_by_slug(&name)? else {
             return Ok(false);
         };
         s.set_next_fetch_at(feed.id, 0)?;

@@ -8,13 +8,15 @@ use rss_proxy::web;
 /// 認証設定つきでサーバーを起動する。
 async fn serve(admin: Option<Admin>) -> (String, reqwest::Client) {
     let store = Store::open_in_memory().unwrap();
-    let id = store
+    let slug = store
         .add_feed(&NewFeed {
-            name: "news".into(),
+            slug: Some("news".into()),
+            label: None,
             url: "https://example.com/f.xml".into(),
             interval_secs: 900,
         })
         .unwrap();
+    let id = store.feed_by_slug(&slug).unwrap().unwrap().id;
     store.set_output(id, "<rss/>").unwrap();
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

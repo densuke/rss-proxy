@@ -124,7 +124,28 @@ pub struct Item {
 
 RSS の `<source>` 要素はモデルに持たない。feed-rs の RSS2 パーサがこの要素を読まないうえ、Google ニュースの場合は description 内の各要素が `<a>見出し</a>&nbsp;&nbsp;<font>媒体名</font>` の形を取るため、媒体名は description から直接得られる。
 
-### 4.3 時刻とタイムゾーン
+### 4.3 フィードの識別子と表示名
+
+配信 URL に使う識別子 (`slug`) と、画面に出す表示名 (`label`) を分ける。当初は 1 つの `name` が両方を兼ねていたが、日本語や空白を含む名前を付けると配信 URL が `/feeds/NHK%20主要ニュース` になり扱いづらかった。
+
+| 項目 | 用途 | 制約 |
+|------|------|------|
+| `slug` | 配信 URL とコマンドラインでの指定 | 英数字と `-` `_`、3〜64 文字、一意 |
+| `label` | 画面の表示名 (任意) | 自由。空なら上流フィードの `title` を使う |
+
+`slug` を省略した場合は 128 ビットの乱数を base64url にした 22 文字を割り当てる。URL を知っている人だけが読める状態になり、推測での発見を防げる。
+
+ただしこれは軽い目隠しであって認証ではない。URL は RSS リーダーの同期先、ブラウザの履歴、プロキシのログ、Referer にも残る。秘匿が必要なら配信側にも認証を足すことになるが、v1 の範囲ではそこまでしない。
+
+`slug` は後から変更できる。変更すると配信 URL が変わり、購読中の登録が切れる。画面と CLI の両方でその旨を示す。
+
+#### 既存 DB からの移行
+
+`name` を URL に使っていた形からの移行では、すでに URL に載せられていた名前はそのまま `slug` にする。購読中の URL を壊さないため。空白や日本語を含む名前は `slug` を乱数で振り直し、元の名前を `label` へ移す。
+
+スキーマの版は SQLite の `user_version` で管理する。
+
+### 4.4 時刻とタイムゾーン
 
 上流フィードの時刻表記は揃っていない。実測した範囲でも以下が混在していた。
 
@@ -236,7 +257,7 @@ SQLite 単一ファイル、WAL モード。既定パス `/var/lib/rss-proxy/rss
 ```sql
 CREATE TABLE feeds (
     id              INTEGER PRIMARY KEY,
-    name            TEXT NOT NULL UNIQUE,   -- URL パスに使う識別子
+    name            TEXT NOT NULL UNIQUE,   -- 移行で slug へ改名 (4.3)
     url             TEXT NOT NULL,          -- 上流フィード URL
     title           TEXT,
     interval_secs   INTEGER NOT NULL DEFAULT 900,
@@ -279,11 +300,12 @@ CREATE TABLE outputs (
 |----------|------|------|
 | GET | `/feeds/:name` | 処理済みフィードの配信 (`application/rss+xml`) |
 | GET | `/` | フィード一覧 |
-| GET | `/ui/feeds/:name` | フィード編集 |
+| GET | `/ui/feeds/:slug` | フィード編集 |
 | POST | `/ui/feeds` | フィード登録 |
-| POST | `/ui/feeds/:name/delete` | フィード削除 |
-| POST | `/ui/feeds/:name/processors` | Processor 連鎖の一括更新 |
-| POST | `/ui/feeds/:name/fetch` | 即時取得 (次回取得時刻を過去にして tick に拾わせる) |
+| POST | `/ui/feeds/:slug/rename` | 識別子・表示名・巡回間隔の変更 |
+| POST | `/ui/feeds/:slug/delete` | フィード削除 |
+| POST | `/ui/feeds/:slug/processors` | Processor 連鎖の一括更新 |
+| POST | `/ui/feeds/:slug/fetch` | 即時取得 (次回取得時刻を過去にして tick に拾わせる) |
 | GET | `/healthz` | ヘルスチェック。稼働中のバージョンを JSON で返す |
 
 JSON API (`/api/*`) は用意しない。当初は Web UI がそれを呼ぶ想定だったが、フォーム POST で直接処理すれば足りる。API を消費するものが現れてから追加する。
@@ -294,8 +316,8 @@ JSON API (`/api/*`) は用意しない。当初は Web UI がそれを呼ぶ想�
 
 画面は 2 枚。
 
-1. フィード一覧 (`/`) — 名前、タイトル、間隔、最終取得、状態、配信 URL。登録フォーム。最終取得の列見出しにローカルのオフセットを添える
-2. フィード編集 (`/ui/feeds/:name`) — Processor 連鎖の編集、配信中の内容の一覧、即時取得、削除
+1. フィード一覧 (`/`) — 識別子、表示名、間隔、最終取得、状態、配信 URL。登録フォーム。最終取得の列見出しにローカルのオフセットを添える
+2. フィード編集 (`/ui/feeds/:slug`) — Processor 連鎖の編集、配信中の内容の一覧、識別子と表示名の変更、即時取得、削除
 
 Processor 連鎖はテキストエリアで編集する。1 行に 1 つ、「種別 パラメータ(JSON)」の形式で書き、行の並びが適用順になる。追加・削除・並べ替えがすべてテキスト編集で済み、行ごとのボタンや並べ替え UI が不要になる。保存時にすべての行を組み立てて検証し、1 つでも不正なら 400 を返して何も保存しない。
 
@@ -386,7 +408,8 @@ src/
 ├── fetch.rs           # HTTP 取得、条件付き GET
 ├── parse.rs           # feed-rs → model 変換
 ├── render.rs          # model → RSS 2.0 XML
-├── store.rs           # SQLite (スキーマとクエリ)
+├── slug.rs            # 配信 URL に使う識別子の生成と検証
+├── store.rs           # SQLite (スキーマ、マイグレーション、クエリ)
 ├── proc/
 │   ├── mod.rs         # trait Processor、レジストリ、チェーン実行
 │   ├── dedupe.rs

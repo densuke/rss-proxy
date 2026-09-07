@@ -23,10 +23,11 @@ async fn serve(setup: impl FnOnce(&Store)) -> (String, reqwest::Client) {
     )
 }
 
-fn feed(name: &str) -> NewFeed {
+fn feed(slug: &str) -> NewFeed {
     NewFeed {
-        name: name.into(),
-        url: format!("https://example.com/{name}.xml"),
+        slug: Some(slug.into()),
+        label: None,
+        url: format!("https://example.com/{slug}.xml"),
         interval_secs: 900,
     }
 }
@@ -46,7 +47,10 @@ async fn index_lists_registered_feeds() {
 #[tokio::test]
 async fn upstream_text_is_html_escaped() {
     let (base, c) = serve(|s| {
-        let id = s.add_feed(&feed("news")).unwrap();
+        let id = {
+            s.add_feed(&feed("news")).unwrap();
+            s.feed_by_slug("news").unwrap().unwrap().id
+        };
         // 上流フィード由来の文字列がそのまま管理画面に載らないこと
         s.set_title(id, "<script>alert(1)</script>").unwrap();
         s.mark_failure(id, "<img src=x onerror=alert(2)>", 0)
@@ -71,8 +75,9 @@ async fn adds_and_deletes_a_feed_through_forms() {
     let res = c
         .post(format!("{base}/ui/feeds"))
         .form(&[
-            ("name", "news"),
             ("url", "https://example.com/news.xml"),
+            ("slug", "news"),
+            ("label", ""),
             ("interval", "600"),
         ])
         .send()
@@ -149,7 +154,10 @@ async fn rejects_an_invalid_chain_without_saving() {
 #[tokio::test]
 async fn fetch_now_makes_the_feed_due() {
     let (base, c) = serve(|s| {
-        let id = s.add_feed(&feed("news")).unwrap();
+        let id = {
+            s.add_feed(&feed("news")).unwrap();
+            s.feed_by_slug("news").unwrap().unwrap().id
+        };
         s.mark_success(id, None, None, 9_999_999_999).unwrap();
     })
     .await;
@@ -178,7 +186,10 @@ async fn unknown_feed_pages_are_404() {
 #[tokio::test]
 async fn delivery_link_appears_only_after_a_successful_fetch() {
     let (base, c) = serve(|s| {
-        let fetched = s.add_feed(&feed("fetched")).unwrap();
+        let fetched = {
+            s.add_feed(&feed("fetched")).unwrap();
+            s.feed_by_slug("fetched").unwrap().unwrap().id
+        };
         s.set_output(fetched, "<rss/>").unwrap();
         s.add_feed(&feed("never")).unwrap();
     })
@@ -193,7 +204,10 @@ async fn delivery_link_appears_only_after_a_successful_fetch() {
 #[tokio::test]
 async fn index_shows_the_last_fetch_time() {
     let (base, c) = serve(|s| {
-        let id = s.add_feed(&feed("news")).unwrap();
+        let id = {
+            s.add_feed(&feed("news")).unwrap();
+            s.feed_by_slug("news").unwrap().unwrap().id
+        };
         s.mark_success(id, None, None, 0).unwrap();
     })
     .await;
@@ -224,7 +238,10 @@ async fn edit_page_lists_the_items_being_served() {
     </channel></rss>"#;
 
     let (base, c) = serve(|s| {
-        let id = s.add_feed(&feed("news")).unwrap();
+        let id = {
+            s.add_feed(&feed("news")).unwrap();
+            s.feed_by_slug("news").unwrap().unwrap().id
+        };
         s.set_output(id, xml).unwrap();
     })
     .await;
@@ -343,7 +360,10 @@ async fn edit_page_shows_the_raw_fields_of_served_items() {
     </channel></rss>"#;
 
     let (base, c) = serve(|s| {
-        let id = s.add_feed(&feed("news")).unwrap();
+        let id = {
+            s.add_feed(&feed("news")).unwrap();
+            s.feed_by_slug("news").unwrap().unwrap().id
+        };
         s.set_output(id, xml).unwrap();
     })
     .await;
@@ -385,4 +405,114 @@ async fn pages_show_the_running_version() {
             .unwrap();
         assert!(body.contains(version), "{path} にバージョンがない");
     }
+}
+
+#[tokio::test]
+async fn an_omitted_slug_becomes_a_random_one() {
+    let (base, c) = serve(|_| {}).await;
+
+    let res = c
+        .post(format!("{base}/ui/feeds"))
+        .form(&[
+            ("url", "https://example.com/x.xml"),
+            ("slug", ""),
+            ("label", "ニュース"),
+            ("interval", "900"),
+        ])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 303);
+
+    let body = c.get(&base).send().await.unwrap().text().await.unwrap();
+    // 表示名は自由、識別子は URL に載せられる形になる
+    assert!(body.contains("ニュース"));
+    let slug = regex_slug(&body).expect("識別子が見つからない");
+    assert!(rss_proxy::slug::is_valid(&slug), "{slug}");
+    assert_eq!(slug.len(), 22, "乱数から作られる");
+}
+
+#[tokio::test]
+async fn a_slug_that_cannot_go_in_a_url_is_rejected() {
+    let (base, c) = serve(|_| {}).await;
+
+    let res = c
+        .post(format!("{base}/ui/feeds"))
+        .form(&[
+            ("url", "https://example.com/x.xml"),
+            ("slug", "NHK 主要ニュース"),
+            ("label", ""),
+            ("interval", "900"),
+        ])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 400);
+}
+
+fn regex_slug(body: &str) -> Option<String> {
+    let start = body.find("/ui/feeds/")? + "/ui/feeds/".len();
+    let rest = &body[start..];
+    let end = rest.find('"')?;
+    Some(rest[..end].to_string())
+}
+
+#[tokio::test]
+async fn the_slug_and_label_can_be_changed_from_the_edit_page() {
+    let (base, c) = serve(|s| {
+        s.add_feed(&feed("old")).unwrap();
+    })
+    .await;
+
+    let res = c
+        .post(format!("{base}/ui/feeds/old/rename"))
+        .form(&[("slug", "new"), ("label", "表示名"), ("interval", "300")])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 303);
+
+    assert_eq!(
+        c.get(format!("{base}/ui/feeds/old"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        404
+    );
+    let body = c
+        .get(format!("{base}/ui/feeds/new"))
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert!(body.contains("表示名"));
+    assert!(body.contains("300"));
+}
+
+#[tokio::test]
+async fn renaming_to_an_invalid_slug_is_rejected() {
+    let (base, c) = serve(|s| {
+        s.add_feed(&feed("old")).unwrap();
+    })
+    .await;
+
+    let res = c
+        .post(format!("{base}/ui/feeds/old/rename"))
+        .form(&[("slug", "NHK 主要"), ("label", ""), ("interval", "900")])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 400);
+    assert_eq!(
+        c.get(format!("{base}/ui/feeds/old"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200,
+        "元の識別子は変わらない"
+    );
 }

@@ -21,13 +21,15 @@ async fn serve_with(setup: impl FnOnce(&Store)) -> String {
 #[tokio::test]
 async fn serves_the_stored_output() {
     let base = serve_with(|store| {
-        let id = store
+        store
             .add_feed(&NewFeed {
-                name: "news".into(),
+                slug: Some("news".into()),
+                label: None,
                 url: "https://example.com/f.xml".into(),
                 interval_secs: 900,
             })
             .unwrap();
+        let id = store.feed_by_slug("news").unwrap().unwrap().id;
         store.set_output(id, "<rss>済</rss>").unwrap();
     })
     .await;
@@ -55,7 +57,8 @@ async fn registered_but_never_fetched_feed_is_404() {
     let base = serve_with(|store| {
         store
             .add_feed(&NewFeed {
-                name: "news".into(),
+                slug: Some("news".into()),
+                label: None,
                 url: "https://example.com/f.xml".into(),
                 interval_secs: 900,
             })

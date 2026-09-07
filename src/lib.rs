@@ -7,5 +7,6 @@ pub mod parse;
 pub mod proc;
 pub mod render;
 pub mod scheduler;
+pub mod slug;
 pub mod store;
 pub mod web;

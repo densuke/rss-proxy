@@ -19,7 +19,7 @@ rss-proxy はフィードごとに処理を登録し、修正済みのフィー�
 ## 使い方
 
 ```console
-$ rss-proxy feed add gnews "https://news.google.com/rss/topics/...?hl=ja&gl=JP&ceid=JP:ja"
+$ rss-proxy feed add "https://news.google.com/rss/topics/...?hl=ja&gl=JP&ceid=JP:ja" --slug gnews
 登録しました: gnews
 
 $ rss-proxy proc attach gnews google_news_cluster
@@ -35,6 +35,17 @@ listening on 127.0.0.1:8080
 RSS リーダーには `http://127.0.0.1:8080/feeds/gnews` を登録する。管理画面は `http://127.0.0.1:8080/` にある。
 
 DB のパスは `--db` で指定する (既定 `rss-proxy.db`)。
+
+## 識別子と表示名
+
+配信 URL に使う識別子 (`slug`) と画面の表示名 (`label`) は別物。
+
+- `slug` — 英数字と `-` `_`、3〜64 文字。省略すると 22 文字の乱数になる
+- `label` — 自由。日本語も空白も使える。省略すると上流フィードのタイトルを使う
+
+識別子を省略すると `/feeds/k7Rm2xQvB8nT4wLpZaYcDf` のような推測しにくい URL になる。ただしこれは軽い目隠しであって認証ではない。URL は RSS リーダーの同期先やプロキシのログにも残る。
+
+識別子は後から `feed set --new-slug` や管理画面で変更できる。**変更すると配信 URL が変わり、購読中の登録が切れる。**
 
 ## Processor
 
@@ -64,10 +75,11 @@ rss-proxy serve [--listen 127.0.0.1:8080]   巡回と配信を開始する
 rss-proxy fetch <name>                      指定フィードを今すぐ取得する
 rss-proxy preview <name>                    保存済みの配信内容を表示する
 
-rss-proxy feed add <name> <url> [--interval 900]
+rss-proxy feed add <url> [--slug X] [--label Y] [--interval 900]
 rss-proxy feed list
-rss-proxy feed show <name>
-rss-proxy feed rm <name>
+rss-proxy feed show <slug>
+rss-proxy feed set <slug> [--new-slug X] [--label Y] [--interval N]
+rss-proxy feed rm <slug>
 
 rss-proxy proc list
 rss-proxy proc attach <feed> <kind> [--params JSON] [--at N]

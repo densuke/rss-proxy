@@ -5,12 +5,13 @@ fn store() -> Store {
     Store::open_in_memory().unwrap()
 }
 
-fn add(s: &Store, name: &str) {
+fn add(s: &Store, slug: &str) {
     run(
         s,
         Command::Feed(FeedCmd::Add {
-            name: name.into(),
-            url: format!("https://example.com/{name}.xml"),
+            url: format!("https://example.com/{slug}.xml"),
+            slug: Some(slug.into()),
+            label: None,
             interval: 900,
         }),
     )
@@ -30,7 +31,7 @@ fn adds_lists_and_removes_feeds() {
         run(
             &s,
             Command::Feed(FeedCmd::Rm {
-                name: "news".into()
+                slug: "news".into()
             })
         )
         .is_ok()
@@ -49,7 +50,7 @@ fn rejects_removing_a_missing_feed() {
         run(
             &s,
             Command::Feed(FeedCmd::Rm {
-                name: "nope".into()
+                slug: "nope".into()
             })
         )
         .is_err()
@@ -74,7 +75,7 @@ fn shows_a_feed_with_its_processor_chain() {
     let shown = run(
         &s,
         Command::Feed(FeedCmd::Show {
-            name: "news".into(),
+            slug: "news".into(),
         }),
     )
     .unwrap();
@@ -103,7 +104,7 @@ fn attaches_detaches_and_reorders_processors() {
     let shown = run(
         &s,
         Command::Feed(FeedCmd::Show {
-            name: "news".into(),
+            slug: "news".into(),
         }),
     )
     .unwrap();
@@ -121,7 +122,7 @@ fn attaches_detaches_and_reorders_processors() {
     let shown = run(
         &s,
         Command::Feed(FeedCmd::Show {
-            name: "news".into(),
+            slug: "news".into(),
         }),
     )
     .unwrap();
@@ -138,7 +139,7 @@ fn attaches_detaches_and_reorders_processors() {
     let shown = run(
         &s,
         Command::Feed(FeedCmd::Show {
-            name: "news".into(),
+            slug: "news".into(),
         }),
     )
     .unwrap();
@@ -175,4 +176,84 @@ fn lists_available_processor_kinds() {
     let listed = run(&store(), Command::Proc(ProcCmd::List)).unwrap();
     assert!(listed.contains("google_news_cluster"));
     assert!(listed.contains("dedupe"));
+}
+
+#[test]
+fn an_omitted_slug_becomes_a_random_one() {
+    let s = store();
+    let out = run(
+        &s,
+        Command::Feed(FeedCmd::Add {
+            url: "https://example.com/x.xml".into(),
+            slug: None,
+            label: Some("ニュース".into()),
+            interval: 900,
+        }),
+    )
+    .unwrap();
+
+    let slug = out.rsplit(' ').next().unwrap();
+    assert!(rss_proxy::slug::is_valid(slug), "{slug}");
+    assert_eq!(slug.len(), 22);
+
+    let shown = run(&s, Command::Feed(FeedCmd::Show { slug: slug.into() })).unwrap();
+    assert!(shown.contains("ニュース"), "表示名が保持される");
+}
+
+#[test]
+fn rejects_a_slug_that_cannot_go_in_a_url() {
+    let s = store();
+    let err = run(
+        &s,
+        Command::Feed(FeedCmd::Add {
+            url: "https://example.com/x.xml".into(),
+            slug: Some("NHK 主要ニュース".into()),
+            label: None,
+            interval: 900,
+        }),
+    )
+    .unwrap_err();
+    assert!(err.to_string().contains("使えません"));
+}
+
+#[test]
+fn renames_the_slug_and_label() {
+    let s = store();
+    add(&s, "old");
+
+    run(
+        &s,
+        Command::Feed(FeedCmd::Set {
+            slug: "old".into(),
+            new_slug: Some("new".into()),
+            label: Some("表示名".into()),
+            interval: Some(300),
+        }),
+    )
+    .unwrap();
+
+    assert!(run(&s, Command::Feed(FeedCmd::Show { slug: "old".into() })).is_err());
+    let shown = run(&s, Command::Feed(FeedCmd::Show { slug: "new".into() })).unwrap();
+    assert!(shown.contains("表示名"));
+    assert!(shown.contains("300s"));
+}
+
+#[test]
+fn renaming_to_an_existing_slug_fails() {
+    let s = store();
+    add(&s, "one");
+    add(&s, "two");
+
+    assert!(
+        run(
+            &s,
+            Command::Feed(FeedCmd::Set {
+                slug: "one".into(),
+                new_slug: Some("two".into()),
+                label: None,
+                interval: None,
+            }),
+        )
+        .is_err()
+    );
 }

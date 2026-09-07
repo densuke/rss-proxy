@@ -7,7 +7,10 @@ pub type Result<T> = std::result::Result<T, rusqlite::Error>;
 
 /// 登録時に必要な項目。
 pub struct NewFeed {
-    pub name: String,
+    /// 配信 URL に使う識別子。None なら乱数から作る
+    pub slug: Option<String>,
+    /// 表示名。None なら上流フィードのタイトルを使う
+    pub label: Option<String>,
     pub url: String,
     pub interval_secs: i64,
 }
@@ -15,7 +18,10 @@ pub struct NewFeed {
 #[derive(Debug, Clone)]
 pub struct Feed {
     pub id: i64,
-    pub name: String,
+    /// 配信 URL とコマンドラインで使う識別子
+    pub slug: String,
+    /// 利用者が付けた表示名。未設定なら上流の title を使う
+    pub label: Option<String>,
     pub url: String,
     pub title: Option<String>,
     pub interval_secs: i64,
@@ -33,6 +39,7 @@ pub struct Feed {
 /// Processor 連鎖の 1 要素。(kind, params の JSON)
 pub type ProcessorSpec = (String, String);
 
+/// 初期スキーマ。以降の変更は MIGRATIONS で積み上げる。
 const SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS feeds (
     id              INTEGER PRIMARY KEY,
@@ -67,8 +74,8 @@ CREATE TABLE IF NOT EXISTS outputs (
 );
 "#;
 
-const FEED_COLUMNS: &str = "id, name, url, title, interval_secs, enabled, etag, last_modified, \
-     next_fetch_at, last_success_at, last_error, fail_count, \
+const FEED_COLUMNS: &str = "id, slug, label, url, title, interval_secs, enabled, etag, \
+     last_modified, next_fetch_at, last_success_at, last_error, fail_count, \
      EXISTS(SELECT 1 FROM outputs o WHERE o.feed_id = feeds.id)";
 
 pub struct Store {
@@ -92,28 +99,78 @@ impl Store {
         Ok(store)
     }
 
+    /// スキーマを最新まで進める。`user_version` で適用済みの段数を持つ。
     pub fn migrate(&self) -> Result<()> {
-        self.conn.execute_batch(SCHEMA)
+        self.conn.execute_batch(SCHEMA)?;
+
+        let applied: i64 = self
+            .conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))?;
+        if applied < 1 {
+            self.split_name_into_slug_and_label()?;
+            self.conn.execute_batch("PRAGMA user_version = 1")?;
+        }
+        Ok(())
     }
 
-    pub fn add_feed(&self, feed: &NewFeed) -> Result<i64> {
+    /// name が URL とパスの両方を兼ねていた形からの移行。
+    ///
+    /// URL に使えていた名前はそのまま識別子にする。購読中の URL を壊さないため。
+    /// 空白や日本語を含む名前は識別子をランダムに振り直し、元の名前は表示名に移す。
+    fn split_name_into_slug_and_label(&self) -> Result<()> {
+        let has_name = self
+            .conn
+            .prepare("SELECT 1 FROM pragma_table_info('feeds') WHERE name = 'name'")?
+            .exists([])?;
+        if !has_name {
+            return Ok(());
+        }
+
+        self.conn.execute_batch(
+            "ALTER TABLE feeds RENAME COLUMN name TO slug;
+             ALTER TABLE feeds ADD COLUMN label TEXT;",
+        )?;
+
+        let rows: Vec<(i64, String)> = self
+            .conn
+            .prepare("SELECT id, slug FROM feeds")?
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<Result<Vec<_>>>()?;
+
+        for (id, slug) in rows {
+            if crate::slug::is_valid(&slug) {
+                continue;
+            }
+            self.conn.execute(
+                "UPDATE feeds SET slug = ?2, label = ?3 WHERE id = ?1",
+                params![id, crate::slug::generate(), slug],
+            )?;
+        }
+        Ok(())
+    }
+
+    /// 登録し、実際に使われた slug を返す。
+    pub fn add_feed(&self, feed: &NewFeed) -> Result<String> {
+        let slug = feed.slug.clone().unwrap_or_else(crate::slug::generate);
         self.conn.execute(
-            "INSERT INTO feeds (name, url, interval_secs, created_at) VALUES (?1, ?2, ?3, ?4)",
+            "INSERT INTO feeds (slug, label, url, interval_secs, created_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5)",
             params![
-                feed.name,
+                slug,
+                feed.label,
                 feed.url,
                 feed.interval_secs,
                 Utc::now().timestamp()
             ],
         )?;
-        Ok(self.conn.last_insert_rowid())
+        Ok(slug)
     }
 
-    pub fn feed_by_name(&self, name: &str) -> Result<Option<Feed>> {
+    pub fn feed_by_slug(&self, slug: &str) -> Result<Option<Feed>> {
         self.conn
             .query_row(
-                &format!("SELECT {FEED_COLUMNS} FROM feeds WHERE name = ?1"),
-                [name],
+                &format!("SELECT {FEED_COLUMNS} FROM feeds WHERE slug = ?1"),
+                [slug],
                 row_to_feed,
             )
             .optional()
@@ -141,11 +198,28 @@ impl Store {
             .collect::<Result<Vec<_>>>()
     }
 
-    pub fn remove_feed(&self, name: &str) -> Result<bool> {
+    pub fn remove_feed(&self, slug: &str) -> Result<bool> {
         Ok(self
             .conn
-            .execute("DELETE FROM feeds WHERE name = ?1", [name])?
+            .execute("DELETE FROM feeds WHERE slug = ?1", [slug])?
             > 0)
+    }
+
+    /// 配信 URL と表示名を変更する。slug を変えると購読中の URL が変わる。
+    pub fn rename(&self, id: i64, slug: &str, label: Option<&str>) -> Result<()> {
+        self.conn.execute(
+            "UPDATE feeds SET slug = ?2, label = ?3 WHERE id = ?1",
+            params![id, slug, label],
+        )?;
+        Ok(())
+    }
+
+    pub fn set_interval(&self, id: i64, interval_secs: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE feeds SET interval_secs = ?2 WHERE id = ?1",
+            params![id, interval_secs],
+        )?;
+        Ok(())
     }
 
     pub fn set_enabled(&self, id: i64, enabled: bool) -> Result<()> {
@@ -235,11 +309,11 @@ impl Store {
         Ok(())
     }
 
-    pub fn output(&self, name: &str) -> Result<Option<String>> {
+    pub fn output(&self, slug: &str) -> Result<Option<String>> {
         self.conn
             .query_row(
-                "SELECT o.xml FROM outputs o JOIN feeds f ON f.id = o.feed_id WHERE f.name = ?1",
-                [name],
+                "SELECT o.xml FROM outputs o JOIN feeds f ON f.id = o.feed_id WHERE f.slug = ?1",
+                [slug],
                 |r| r.get(0),
             )
             .optional()
@@ -249,17 +323,18 @@ impl Store {
 fn row_to_feed(row: &rusqlite::Row) -> Result<Feed> {
     Ok(Feed {
         id: row.get(0)?,
-        name: row.get(1)?,
-        url: row.get(2)?,
-        title: row.get(3)?,
-        interval_secs: row.get(4)?,
-        enabled: row.get(5)?,
-        etag: row.get(6)?,
-        last_modified: row.get(7)?,
-        next_fetch_at: row.get(8)?,
-        last_success_at: row.get(9)?,
-        last_error: row.get(10)?,
-        fail_count: row.get(11)?,
-        has_output: row.get(12)?,
+        slug: row.get(1)?,
+        label: row.get(2)?,
+        url: row.get(3)?,
+        title: row.get(4)?,
+        interval_secs: row.get(5)?,
+        enabled: row.get(6)?,
+        etag: row.get(7)?,
+        last_modified: row.get(8)?,
+        next_fetch_at: row.get(9)?,
+        last_error: row.get(11)?,
+        last_success_at: row.get(10)?,
+        fail_count: row.get(12)?,
+        has_output: row.get(13)?,
     })
 }

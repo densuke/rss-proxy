@@ -31,6 +31,7 @@ pub fn app_with_auth(store: Store, admin: Option<Admin>) -> Router {
         .route("/ui/feeds", post(ui::add))
         .route("/ui/feeds/{name}", get(ui::show))
         .route("/ui/feeds/{name}/delete", post(ui::delete))
+        .route("/ui/feeds/{name}/rename", post(ui::rename))
         .route("/ui/feeds/{name}/processors", post(ui::set_chain))
         .route("/ui/feeds/{name}/fetch", post(ui::fetch_now))
         .layer(axum::middleware::from_fn_with_state(

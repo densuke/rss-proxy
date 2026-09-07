@@ -21,17 +21,33 @@ pub enum Command {
 pub enum FeedCmd {
     /// フィードを登録する
     Add {
-        name: String,
         url: String,
+        /// 配信 URL に使う識別子。省略すると推測されにくい乱数から作る
+        #[arg(long)]
+        slug: Option<String>,
+        /// 表示名。省略すると上流フィードのタイトルを使う
+        #[arg(long)]
+        label: Option<String>,
         #[arg(long, default_value_t = 900)]
         interval: i64,
     },
     /// 登録済みフィードを一覧する
     List,
     /// フィードの詳細と Processor 連鎖を表示する
-    Show { name: String },
+    Show { slug: String },
+    /// 識別子・表示名・巡回間隔を変更する
+    Set {
+        slug: String,
+        /// 新しい識別子。変更すると購読中の配信 URL が変わる
+        #[arg(long)]
+        new_slug: Option<String>,
+        #[arg(long)]
+        label: Option<String>,
+        #[arg(long)]
+        interval: Option<i64>,
+    },
     /// フィードを削除する
-    Rm { name: String },
+    Rm { slug: String },
 }
 
 #[derive(Subcommand)]
@@ -69,18 +85,23 @@ pub fn run(store: &Store, command: Command) -> Result<String> {
 fn feed(store: &Store, cmd: FeedCmd) -> Result<String> {
     match cmd {
         FeedCmd::Add {
-            name,
             url,
+            slug,
+            label,
             interval,
         } => {
-            store
+            if let Some(slug) = &slug {
+                check_slug(slug)?;
+            }
+            let slug = store
                 .add_feed(&NewFeed {
-                    name: name.clone(),
+                    slug,
+                    label,
                     url,
                     interval_secs: interval,
                 })
-                .with_context(|| format!("フィード {name} を登録できません"))?;
-            Ok(format!("登録しました: {name}"))
+                .context("フィードを登録できません")?;
+            Ok(format!("登録しました: {slug}"))
         }
         FeedCmd::List => {
             let feeds = store.list_feeds()?;
@@ -95,13 +116,19 @@ fn feed(store: &Store, cmd: FeedCmd) -> Result<String> {
                         (None, Some(_)) => "正常".into(),
                         (None, None) => "未取得".into(),
                     };
-                    format!("{}\t{}\t{}s\t{state}", f.name, f.url, f.interval_secs)
+                    format!(
+                        "{}\t{}\t{}\t{}s\t{state}",
+                        f.slug,
+                        f.label.as_deref().or(f.title.as_deref()).unwrap_or("-"),
+                        f.url,
+                        f.interval_secs
+                    )
                 })
                 .collect::<Vec<_>>()
                 .join("\n"))
         }
-        FeedCmd::Show { name } => {
-            let f = find(store, &name)?;
+        FeedCmd::Show { slug } => {
+            let f = find(store, &slug)?;
             let chain = store
                 .processors(f.id)?
                 .iter()
@@ -114,19 +141,43 @@ fn feed(store: &Store, cmd: FeedCmd) -> Result<String> {
                 chain.join("\n")
             };
             Ok(format!(
-                "name: {}\nurl: {}\ntitle: {}\ninterval: {}s\nenabled: {}\nprocessors:\n{chain}",
-                f.name,
+                "slug: {}\nlabel: {}\nurl: {}\ntitle: {}\ninterval: {}s\nenabled: {}\n\
+                 processors:\n{chain}",
+                f.slug,
+                f.label.as_deref().unwrap_or("-"),
                 f.url,
                 f.title.as_deref().unwrap_or("-"),
                 f.interval_secs,
                 f.enabled,
             ))
         }
-        FeedCmd::Rm { name } => {
-            if !store.remove_feed(&name)? {
-                bail!("フィード {name} は登録されていません");
+        FeedCmd::Set {
+            slug,
+            new_slug,
+            label,
+            interval,
+        } => {
+            let f = find(store, &slug)?;
+            if let Some(new) = &new_slug {
+                check_slug(new)?;
             }
-            Ok(format!("削除しました: {name}"))
+            if new_slug.is_some() || label.is_some() {
+                let next = new_slug.clone().unwrap_or_else(|| f.slug.clone());
+                let label = label.or(f.label.clone());
+                store
+                    .rename(f.id, &next, label.as_deref())
+                    .with_context(|| format!("{next} は既に使われています"))?;
+            }
+            if let Some(interval) = interval {
+                store.set_interval(f.id, interval)?;
+            }
+            Ok(format!("更新しました: {}", new_slug.unwrap_or(slug)))
+        }
+        FeedCmd::Rm { slug } => {
+            if !store.remove_feed(&slug)? {
+                bail!("フィード {slug} は登録されていません");
+            }
+            Ok(format!("削除しました: {slug}"))
         }
     }
 }
@@ -186,8 +237,19 @@ fn processor(store: &Store, cmd: ProcCmd) -> Result<String> {
     }
 }
 
-fn find(store: &Store, name: &str) -> Result<crate::store::Feed> {
+fn find(store: &Store, slug: &str) -> Result<crate::store::Feed> {
     store
-        .feed_by_name(name)?
-        .with_context(|| format!("フィード {name} は登録されていません"))
+        .feed_by_slug(slug)?
+        .with_context(|| format!("フィード {slug} は登録されていません"))
+}
+
+/// 配信 URL に載せられる形式かどうか。
+fn check_slug(slug: &str) -> Result<()> {
+    if !crate::slug::is_valid(slug) {
+        bail!(
+            "識別子 {slug} は使えません。英数字と - _ のみ、3〜64 文字にしてください \
+             (URL エンコードなしでパスに載せるため)"
+        );
+    }
+    Ok(())
 }

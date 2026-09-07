@@ -27,9 +27,9 @@ enum Cmd {
         listen: String,
     },
     /// 処理の適用結果を確認する
-    Preview { name: String },
+    Preview { slug: String },
     /// 指定フィードを今すぐ取得して処理する
-    Fetch { name: String },
+    Fetch { slug: String },
     /// 管理画面のパスワードハッシュを生成する
     HashPassword,
     #[command(flatten)]
@@ -48,11 +48,11 @@ fn main() -> Result<()> {
 
     match args.command {
         Cmd::Serve { listen } => serve(args.db, listen),
-        Cmd::Preview { name } => {
-            println!("{}", preview(&store, &name)?);
+        Cmd::Preview { slug } => {
+            println!("{}", preview(&store, &slug)?);
             Ok(())
         }
-        Cmd::Fetch { name } => fetch_now(&store, &name),
+        Cmd::Fetch { slug } => fetch_now(&store, &slug),
         Cmd::HashPassword => unreachable!("DB を開く前に処理済み"),
         Cmd::Manage(cmd) => {
             println!("{}", cli::run(&store, cmd)?);
@@ -62,10 +62,10 @@ fn main() -> Result<()> {
 }
 
 /// 保存済みの配信内容を表示する。Processor の効果はこれで確認する。
-fn preview(store: &Store, name: &str) -> Result<String> {
+fn preview(store: &Store, slug: &str) -> Result<String> {
     store
-        .output(name)?
-        .with_context(|| format!("{name} はまだ一度も取得されていません"))
+        .output(slug)?
+        .with_context(|| format!("{slug} はまだ一度も取得されていません"))
 }
 
 /// 管理画面のパスワードハッシュを作る。設定は環境変数で渡す。
@@ -100,17 +100,17 @@ fn read_password() -> Result<String> {
 }
 
 /// サーバーを介さずその場で取得する。停止中でも実行できる。
-fn fetch_now(store: &Store, name: &str) -> Result<()> {
+fn fetch_now(store: &Store, slug: &str) -> Result<()> {
     let feed = store
-        .feed_by_name(name)?
-        .with_context(|| format!("フィード {name} は登録されていません"))?;
+        .feed_by_slug(slug)?
+        .with_context(|| format!("フィード {slug} は登録されていません"))?;
 
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?
         .block_on(scheduler::refresh(store, &fetch::client(), &feed))?;
 
-    println!("取得しました: {name}");
+    println!("取得しました: {slug}");
     Ok(())
 }
 

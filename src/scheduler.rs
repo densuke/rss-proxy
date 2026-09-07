@@ -112,7 +112,7 @@ async fn tick(store: &Store, client: &Client) -> Result<(), rusqlite::Error> {
     // 必要になったら接続プール + JoinSet に置き換える。
     for feed in store.due_feeds(Utc::now().timestamp())? {
         if let Err(e) = refresh(store, client, &feed).await {
-            eprintln!("refresh {}: {e}", feed.name);
+            eprintln!("refresh {}: {e}", feed.slug);
         }
     }
     Ok(())

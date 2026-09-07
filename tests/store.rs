@@ -4,10 +4,17 @@ fn store() -> Store {
     Store::open_in_memory().unwrap()
 }
 
-fn new_feed(name: &str) -> NewFeed {
+/// 登録して id を返す。
+fn feed_id(s: &Store, slug: &str) -> i64 {
+    s.add_feed(&new_feed(slug)).unwrap();
+    s.feed_by_slug(slug).unwrap().unwrap().id
+}
+
+fn new_feed(slug: &str) -> NewFeed {
     NewFeed {
-        name: name.to_string(),
-        url: format!("https://example.com/{name}.xml"),
+        slug: Some(slug.to_string()),
+        label: None,
+        url: format!("https://example.com/{slug}.xml"),
         interval_secs: 900,
     }
 }
@@ -15,10 +22,10 @@ fn new_feed(name: &str) -> NewFeed {
 #[test]
 fn adds_and_reads_back_a_feed() {
     let s = store();
-    let id = s.add_feed(&new_feed("news")).unwrap();
+    let id = feed_id(&s, "news");
 
     let feed = s
-        .feed_by_name("news")
+        .feed_by_slug("news")
         .unwrap()
         .expect("登録した feed が読める");
     assert_eq!(feed.id, id);
@@ -27,7 +34,7 @@ fn adds_and_reads_back_a_feed() {
     assert_eq!(feed.fail_count, 0);
     assert!(feed.last_success_at.is_none());
 
-    assert!(s.feed_by_name("missing").unwrap().is_none());
+    assert!(s.feed_by_slug("missing").unwrap().is_none());
 }
 
 #[test]
@@ -47,7 +54,7 @@ fn lists_and_removes_feeds() {
         .list_feeds()
         .unwrap()
         .into_iter()
-        .map(|f| f.name)
+        .map(|f| f.slug)
         .collect();
     assert_eq!(names, vec!["a", "b"]);
 
@@ -62,9 +69,9 @@ fn lists_and_removes_feeds() {
 #[test]
 fn due_feeds_respects_next_fetch_at_and_enabled() {
     let s = store();
-    let due = s.add_feed(&new_feed("due")).unwrap();
-    let later = s.add_feed(&new_feed("later")).unwrap();
-    let disabled = s.add_feed(&new_feed("disabled")).unwrap();
+    let due = feed_id(&s, "due");
+    let later = feed_id(&s, "later");
+    let disabled = feed_id(&s, "disabled");
 
     s.mark_success(later, None, None, 5_000).unwrap();
     s.set_enabled(disabled, false).unwrap();
@@ -89,11 +96,11 @@ fn due_feeds_respects_next_fetch_at_and_enabled() {
 #[test]
 fn success_records_validators_and_clears_errors() {
     let s = store();
-    let id = s.add_feed(&new_feed("news")).unwrap();
+    let id = feed_id(&s, "news");
 
     s.mark_failure(id, "接続失敗", 100).unwrap();
     s.mark_failure(id, "接続失敗", 200).unwrap();
-    let f = s.feed_by_name("news").unwrap().unwrap();
+    let f = s.feed_by_slug("news").unwrap().unwrap();
     assert_eq!(f.fail_count, 2);
     assert_eq!(f.last_error.as_deref(), Some("接続失敗"));
     assert_eq!(f.next_fetch_at, 200);
@@ -105,7 +112,7 @@ fn success_records_validators_and_clears_errors() {
         1_100,
     )
     .unwrap();
-    let f = s.feed_by_name("news").unwrap().unwrap();
+    let f = s.feed_by_slug("news").unwrap().unwrap();
     assert_eq!(f.fail_count, 0);
     assert!(f.last_error.is_none());
     assert_eq!(f.etag.as_deref(), Some("W/\"abc\""));
@@ -119,7 +126,7 @@ fn success_records_validators_and_clears_errors() {
 #[test]
 fn stores_and_replaces_the_processor_chain() {
     let s = store();
-    let id = s.add_feed(&new_feed("news")).unwrap();
+    let id = feed_id(&s, "news");
     assert!(s.processors(id).unwrap().is_empty());
 
     s.set_processors(
@@ -145,7 +152,7 @@ fn stores_and_replaces_the_processor_chain() {
 #[test]
 fn output_round_trips_and_is_removed_with_the_feed() {
     let s = store();
-    let id = s.add_feed(&new_feed("news")).unwrap();
+    let id = feed_id(&s, "news");
     assert!(s.output("news").unwrap().is_none());
 
     s.set_output(id, "<rss>1</rss>").unwrap();
