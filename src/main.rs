@@ -28,6 +28,8 @@ enum Cmd {
     },
     /// 処理の適用結果を確認する
     Preview { name: String },
+    /// 指定フィードを今すぐ取得して処理する
+    Fetch { name: String },
     #[command(flatten)]
     Manage(cli::Command),
 }
@@ -43,6 +45,7 @@ fn main() -> Result<()> {
             println!("{}", preview(&store, &name)?);
             Ok(())
         }
+        Cmd::Fetch { name } => fetch_now(&store, &name),
         Cmd::Manage(cmd) => {
             println!("{}", cli::run(&store, cmd)?);
             Ok(())
@@ -55,6 +58,21 @@ fn preview(store: &Store, name: &str) -> Result<String> {
     store
         .output(name)?
         .with_context(|| format!("{name} はまだ一度も取得されていません"))
+}
+
+/// サーバーを介さずその場で取得する。停止中でも実行できる。
+fn fetch_now(store: &Store, name: &str) -> Result<()> {
+    let feed = store
+        .feed_by_name(name)?
+        .with_context(|| format!("フィード {name} は登録されていません"))?;
+
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?
+        .block_on(scheduler::refresh(store, &fetch::client(), &feed))?;
+
+    println!("取得しました: {name}");
+    Ok(())
 }
 
 #[tokio::main]

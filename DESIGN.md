@@ -252,23 +252,30 @@ CREATE TABLE outputs (
 | メソッド | パス | 用途 |
 |----------|------|------|
 | GET | `/feeds/:name` | 処理済みフィードの配信 (`application/rss+xml`) |
-| GET | `/api/feeds` | フィード一覧 |
-| POST | `/api/feeds` | フィード登録 |
-| GET | `/api/feeds/:id` | フィード詳細 (Processor 連鎖を含む) |
-| PATCH | `/api/feeds/:id` | フィード更新 |
-| DELETE | `/api/feeds/:id` | フィード削除 |
-| POST | `/api/feeds/:id/fetch` | 即時取得 |
-| PUT | `/api/feeds/:id/processors` | Processor 連鎖の一括更新 (順序込み) |
+| GET | `/` | フィード一覧 |
+| GET | `/ui/feeds/:name` | フィード編集 |
+| POST | `/ui/feeds` | フィード登録 |
+| POST | `/ui/feeds/:name/delete` | フィード削除 |
+| POST | `/ui/feeds/:name/processors` | Processor 連鎖の一括更新 |
+| POST | `/ui/feeds/:name/fetch` | 即時取得 (次回取得時刻を過去にして tick に拾わせる) |
 | GET | `/healthz` | ヘルスチェック |
+
+JSON API (`/api/*`) は用意しない。当初は Web UI がそれを呼ぶ想定だったが、フォーム POST で直接処理すれば足りる。API を消費するものが現れてから追加する。
 
 ### 8.2 Web UI
 
-サーバーサイドで HTML を生成する。SPA フレームワークもテンプレートエンジンも使わない。
+サーバーサイドで HTML を生成する。SPA フレームワークもテンプレートエンジンも JavaScript も使わない。すべてフォーム POST で完結させる。
 
 画面は 2 枚。
 
-1. フィード一覧 — 名前、最終取得、状態、item 数、配信 URL
-2. フィード編集 — URL、巡回間隔、Processor 連鎖の追加・削除・並べ替え
+1. フィード一覧 (`/`) — 名前、タイトル、間隔、状態、配信 URL。登録フォーム
+2. フィード編集 (`/ui/feeds/:name`) — Processor 連鎖の編集、即時取得、削除
+
+Processor 連鎖はテキストエリアで編集する。1 行に 1 つ、「種別 パラメータ(JSON)」の形式で書き、行の並びが適用順になる。追加・削除・並べ替えがすべてテキスト編集で済み、行ごとのボタンや並べ替え UI が不要になる。保存時にすべての行を組み立てて検証し、1 つでも不正なら 400 を返して何も保存しない。
+
+### 8.3 出力のエスケープ
+
+フィードのタイトルと直近のエラー文言は上流フィード由来の文字列であり、それが管理画面に表示される。悪意のあるフィードのタイトルは管理画面に対する格納型 XSS になりうる。HTML へ埋め込む前に必ずエスケープする。
 
 ## 9. CLI
 
@@ -281,14 +288,14 @@ rss-proxy feed add <name> <url> [--interval 900]
 rss-proxy feed list
 rss-proxy feed show <name>
 rss-proxy feed rm <name>
-rss-proxy feed fetch <name>          # 即時取得
+rss-proxy fetch <name>               # 即時取得 (サーバー停止中でも実行できる)
 
 rss-proxy proc list                  # 利用可能な Processor 種別
 rss-proxy proc attach <feed> <kind> [--params '{"key":"link"}'] [--at N]
 rss-proxy proc detach <feed> <position>
 rss-proxy proc move <feed> <from> <to>
 
-rss-proxy preview <name>             # 適用前後を標準出力に表示
+rss-proxy preview <name>             # 保存済みの配信内容を標準出力に表示
 ```
 
 CLI はサーバー API を経由せず SQLite に直接アクセスする。サーバーが停止していても設定を編集でき、初期セットアップやトラブル時の復旧が容易になる。WAL モードにより稼働中のサーバーとの同時アクセスも安全。
@@ -332,6 +339,8 @@ tests/
 ## 11. テスト方針
 
 TDD を前提とする。仕様 (本書) → テスト作成 → 実装 の順で進める。カバレッジは 80% 以上を目標とし、cargo-tarpaulin で測定する。
+
+巡回ループ本体 (`scheduler::run_loop` / `tick`) と `main.rs` の起動処理は測定対象から除く。時間経過とプロセス起動に依存し、自動テストに載せる価値に対して手間が見合わない。1 フィードを処理する `refresh` は個別にテストする。
 
 ### 11.1 Processor の単体テスト
 
@@ -379,7 +388,7 @@ PR と main への push で実行する。
 cargo fmt --all -- --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all
-cargo audit
+cargo install cargo-audit && cargo audit
 ```
 
 ### 12.3 リリース (`.github/workflows/release.yml`)
@@ -387,6 +396,7 @@ cargo audit
 `v*` タグの push で起動する。
 
 - `ubuntu-latest` 上で `x86_64-unknown-linux-musl` 向けにビルドする
+- 事前に `rustup target add x86_64-unknown-linux-musl` と `apt-get install -y musl-tools` が必要になる。rusqlite の `bundled` は SQLite の C ソースをコンパイルするため、musl 向けの C コンパイラが要る
 - musl による完全静的リンクにより、運用環境の glibc バージョンに依存しない単一バイナリになる
 - 成果物 `rss-proxy-x86_64-linux-musl.tar.gz` と SHA256 チェックサムを GitHub Releases に添付する
 

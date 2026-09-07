@@ -161,6 +161,15 @@ impl Store {
         Ok(())
     }
 
+    /// 次回取得時刻を直接指定する。「今すぐ取得」で 0 にして tick に拾わせる。
+    pub fn set_next_fetch_at(&self, id: i64, at: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE feeds SET next_fetch_at = ?2 WHERE id = ?1",
+            params![id, at],
+        )?;
+        Ok(())
+    }
+
     pub fn mark_success(
         &self,
         id: i64,

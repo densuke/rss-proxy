@@ -1,9 +1,10 @@
 pub mod serve;
+pub mod ui;
 
 use std::sync::{Arc, Mutex};
 
 use axum::Router;
-use axum::routing::get;
+use axum::routing::{get, post};
 
 use crate::store::Store;
 
@@ -14,6 +15,12 @@ pub type SharedStore = Arc<Mutex<Store>>;
 pub fn app(store: Store) -> Router {
     Router::new()
         .route("/feeds/{name}", get(serve::feed))
+        .route("/", get(ui::index))
+        .route("/ui/feeds", post(ui::add))
+        .route("/ui/feeds/{name}", get(ui::show))
+        .route("/ui/feeds/{name}/delete", post(ui::delete))
+        .route("/ui/feeds/{name}/processors", post(ui::set_chain))
+        .route("/ui/feeds/{name}/fetch", post(ui::fetch_now))
         .route("/healthz", get(|| async { "ok" }))
         .with_state(Arc::new(Mutex::new(store)))
 }
