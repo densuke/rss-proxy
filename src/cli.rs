@@ -168,7 +168,7 @@ fn feed(store: &Store, cmd: FeedCmd) -> Result<String> {
                     .rename(f.id, &next, label.as_deref())
                     .with_context(|| format!("{next} は既に使われています"))?;
                 // 表示名は配信する title にも使う。作り直させる
-                store.clear_validators(f.id)?;
+                reschedule(store, f.id)?;
             }
             if let Some(interval) = interval {
                 store.set_interval(f.id, interval)?;
@@ -213,7 +213,7 @@ fn processor(store: &Store, cmd: ProcCmd) -> Result<String> {
             let at = at.unwrap_or(chain.len()).min(chain.len());
             chain.insert(at, (kind.clone(), built.params()));
             store.set_processors(f.id, &chain)?;
-            store.clear_validators(f.id)?;
+            reschedule(store, f.id)?;
             Ok(format!("{feed} の {at} 番目に {kind} を追加しました"))
         }
         ProcCmd::Detach { feed, position } => {
@@ -224,7 +224,7 @@ fn processor(store: &Store, cmd: ProcCmd) -> Result<String> {
             }
             let (kind, _) = chain.remove(position);
             store.set_processors(f.id, &chain)?;
-            store.clear_validators(f.id)?;
+            reschedule(store, f.id)?;
             Ok(format!("{feed} から {kind} を外しました"))
         }
         ProcCmd::Move { feed, from, to } => {
@@ -236,7 +236,7 @@ fn processor(store: &Store, cmd: ProcCmd) -> Result<String> {
             let item = chain.remove(from);
             chain.insert(to, item);
             store.set_processors(f.id, &chain)?;
-            store.clear_validators(f.id)?;
+            reschedule(store, f.id)?;
             Ok(format!("{feed} の {from} を {to} へ移動しました"))
         }
     }
@@ -246,6 +246,16 @@ fn find(store: &Store, slug: &str) -> Result<crate::store::Feed> {
     store
         .feed_by_slug(slug)?
         .with_context(|| format!("フィード {slug} は登録されていません"))
+}
+
+/// 設定を変えたあと、次の巡回で配信内容を作り直させる。
+///
+/// 検証子を残したままだと 304 で処理がスキップされ、次回取得時刻が先のままだと
+/// 最大で巡回間隔ぶん反映が遅れる。どちらも「設定したのに効いていない」ように見える。
+fn reschedule(store: &Store, id: i64) -> Result<()> {
+    store.clear_validators(id)?;
+    store.set_next_fetch_at(id, 0)?;
+    Ok(())
 }
 
 /// 配信 URL に載せられる形式かどうか。

@@ -405,8 +405,10 @@ pub async fn set_chain(
             return Ok(false);
         };
         s.set_processors(feed.id, &chain)?;
-        // 連鎖を変えたら配信内容も作り直す
+        // 連鎖を変えたら配信内容も作り直す。次の巡回まで待たせると
+        // 「設定したのに効いていない」ように見える
         s.clear_validators(feed.id)?;
+        s.set_next_fetch_at(feed.id, 0)?;
         Ok::<_, rusqlite::Error>(true)
     });
     match saved {

@@ -257,3 +257,61 @@ fn renaming_to_an_existing_slug_fails() {
         .is_err()
     );
 }
+
+/// 設定を変えたのに次の巡回まで反映されないと「効いていない」ように見える。
+/// 変更したら検証子を捨て、すぐ巡回対象にする。
+#[test]
+fn changing_the_configuration_schedules_an_immediate_refetch() {
+    let s = store();
+    add(&s, "news");
+    let id = s.feed_by_slug("news").unwrap().unwrap().id;
+
+    let park = |s: &Store| {
+        s.mark_success(id, Some("W/\"1\""), Some("Mon"), 9_999_999_999)
+            .unwrap()
+    };
+    let parked = |s: &Store| {
+        let f = s.feed_by_slug("news").unwrap().unwrap();
+        f.etag.is_some() || f.last_modified.is_some() || f.next_fetch_at != 0
+    };
+
+    // Processor の追加
+    park(&s);
+    run(
+        &s,
+        Command::Proc(ProcCmd::Attach {
+            feed: "news".into(),
+            kind: "dedupe".into(),
+            params: None,
+            at: None,
+        }),
+    )
+    .unwrap();
+    assert!(!parked(&s), "追加後は作り直しの対象になる");
+
+    // Processor の削除
+    park(&s);
+    run(
+        &s,
+        Command::Proc(ProcCmd::Detach {
+            feed: "news".into(),
+            position: 0,
+        }),
+    )
+    .unwrap();
+    assert!(!parked(&s), "削除後は作り直しの対象になる");
+
+    // 表示名の変更 (配信する title に使われる)
+    park(&s);
+    run(
+        &s,
+        Command::Feed(FeedCmd::Set {
+            slug: "news".into(),
+            new_slug: None,
+            label: Some("表示名".into()),
+            interval: None,
+        }),
+    )
+    .unwrap();
+    assert!(!parked(&s), "表示名の変更後は作り直しの対象になる");
+}
