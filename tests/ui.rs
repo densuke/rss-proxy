@@ -192,8 +192,17 @@ async fn index_shows_the_last_fetch_time() {
     .await;
 
     let body = c.get(&base).send().await.unwrap().text().await.unwrap();
-    assert!(body.contains("最終取得"), "見出しがある");
-    // 現在時刻がローカルタイムの書式で出る
-    let now = chrono::Local::now().format("%Y-%m-%d").to_string();
+    // オフセットは見出しに 1 度だけ出し、各行の値には付けない
+    let offset = chrono::Local::now().format("%:z").to_string();
+    assert!(
+        body.contains(&format!("最終取得 ({offset})")),
+        "見出しにオフセットがある"
+    );
+
+    let now = chrono::Local::now().format("%Y-%m-%d %H:%M").to_string();
     assert!(body.contains(&now), "{now} が出力に含まれていない");
+    assert!(
+        !body.contains(&format!("{now} {offset}")),
+        "値にオフセットが重複して付いている"
+    );
 }

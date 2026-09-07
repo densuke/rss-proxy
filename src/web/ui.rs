@@ -16,18 +16,25 @@ use crate::web::SharedStore;
 /// UNIX 時刻を指定オフセットで表示する。
 ///
 /// 上流フィードの時刻表記は GMT / Z / +0900 と揃っておらず、内部では UTC に
-/// 正規化している。画面には運用者のローカル時刻で出す。どの地域で読んでも
-/// 誤解しないよう、オフセットを必ず添える。
+/// 正規化している。画面には運用者のローカル時刻で出す。
+/// どのオフセットで表示しているかは [`offset_label`] を見出しに添えて示す。
 pub fn format_time(unix: i64, offset: FixedOffset) -> String {
     DateTime::from_timestamp(unix, 0)
         .map(|t| {
             t.with_timezone(&offset)
-                .format("%Y-%m-%d %H:%M %:z")
+                .format("%Y-%m-%d %H:%M")
                 .to_string()
         })
         .unwrap_or_else(|| "-".into())
 }
 
+/// 見出しに添えるオフセット表記。値ごとに繰り返さず、ここで 1 度だけ示す。
+pub fn offset_label(offset: FixedOffset) -> String {
+    offset.to_string()
+}
+
+// ponytail: 現在時刻のオフセットを全行に使う。夏時間のある地域では、
+// 切り替えを挟んだ過去の時刻がずれる。表示するのは直近の取得時刻だけなので実害はない。
 fn local_offset() -> FixedOffset {
     Local::now().offset().fix()
 }
@@ -92,15 +99,16 @@ pub async fn index(State(store): State<SharedStore>) -> Response {
         "rss-proxy",
         &format!(
             "<h1>フィード</h1>\
-             <table><tr><th>名前</th><th>タイトル</th><th>間隔</th><th>最終取得</th>\
-             <th>状態</th><th>配信</th></tr>\
+             <table><tr><th>名前</th><th>タイトル</th><th>間隔</th>\
+             <th>最終取得 ({offset})</th><th>状態</th><th>配信</th></tr>\
              {rows}</table>\
              <h2>登録</h2>\
              <form method=\"post\" action=\"/ui/feeds\">\
              <p>名前 <input name=\"name\" required pattern=\"[A-Za-z0-9_-]+\"></p>\
              <p>URL <input name=\"url\" type=\"url\" size=\"60\" required></p>\
              <p>間隔(秒) <input name=\"interval\" type=\"number\" value=\"900\" min=\"60\"></p>\
-             <p><button>追加</button></p></form>"
+             <p><button>追加</button></p></form>",
+            offset = offset_label(offset),
         ),
     )
     .into_response()
@@ -160,7 +168,7 @@ pub async fn show(State(store): State<SharedStore>, Path(name): Path<String>) ->
         &feed.name,
         &format!(
             "<p><a href=\"/\">← 一覧</a></p><h1>{name}</h1>\
-             <p>{url}</p><p>最終取得: {last} / 状態: {state}</p>\
+             <p>{url}</p><p>最終取得 ({offset}): {last} / 状態: {state}</p>\
              <h2>Processor 連鎖</h2>\
              <p>1 行に 1 つ、「種別 パラメータ(JSON)」の形式で書く。並び順が適用順。<br>\
              利用可能: {kinds}</p>\
@@ -172,6 +180,7 @@ pub async fn show(State(store): State<SharedStore>, Path(name): Path<String>) ->
              <form method=\"post\" action=\"/ui/feeds/{name}/delete\"><button>削除</button></form>",
             name = escape(&feed.name),
             url = escape(&feed.url),
+            offset = offset_label(local_offset()),
             last = last_fetch(&feed, local_offset()),
             state = status(&feed),
             kinds = crate::cli::KINDS.join(", "),
