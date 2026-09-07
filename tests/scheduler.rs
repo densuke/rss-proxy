@@ -150,3 +150,35 @@ async fn without_a_label_the_upstream_title_is_used() {
     let parsed = rss_proxy::parse::parse(xml.as_bytes()).unwrap();
     assert_eq!(parsed.title, "ヘッドライン - 最新 - Google ニュース");
 }
+
+/// 設定を変えたのに 304 で処理がスキップされると、配信内容が古いままになる。
+/// 検証子を消してあれば次の取得で必ず作り直される。
+#[tokio::test]
+async fn clearing_the_validators_forces_a_full_fetch() {
+    let (url, upstream) = common::serve(FIXTURE).await;
+    let (store, id) = store_with_feed(&url);
+    let client = rss_proxy::fetch::client();
+
+    let feed = store.feed_by_slug("news").unwrap().unwrap();
+    refresh(&store, &client, &feed).await.unwrap();
+    assert!(store.feed_by_slug("news").unwrap().unwrap().etag.is_some());
+
+    // そのままだと 304 になり、処理は走らない
+    let feed = store.feed_by_slug("news").unwrap().unwrap();
+    refresh(&store, &client, &feed).await.unwrap();
+    // 表示名を変えたうえで検証子を消す
+    store.rename(id, "news", Some("新しい表示名")).unwrap();
+    store.clear_validators(id).unwrap();
+    let feed = store.feed_by_slug("news").unwrap().unwrap();
+    assert!(feed.etag.is_none() && feed.last_modified.is_none());
+
+    refresh(&store, &client, &feed).await.unwrap();
+    assert_eq!(upstream.hits(), 3);
+
+    let xml = store.output("news").unwrap().unwrap();
+    assert_eq!(
+        rss_proxy::parse::parse(xml.as_bytes()).unwrap().title,
+        "新しい表示名",
+        "設定変更が配信内容に反映される"
+    );
+}

@@ -405,6 +405,8 @@ pub async fn set_chain(
             return Ok(false);
         };
         s.set_processors(feed.id, &chain)?;
+        // 連鎖を変えたら配信内容も作り直す
+        s.clear_validators(feed.id)?;
         Ok::<_, rusqlite::Error>(true)
     });
     match saved {
@@ -474,6 +476,8 @@ pub async fn fetch_now(State(store): State<SharedStore>, Path(name): Path<String
         let Some(feed) = s.feed_by_slug(&name)? else {
             return Ok(false);
         };
+        // 304 で処理が飛ぶと「取得したのに変わらない」ことになるため、必ず取り直す
+        s.clear_validators(feed.id)?;
         s.set_next_fetch_at(feed.id, 0)?;
         Ok::<_, rusqlite::Error>(true)
     });

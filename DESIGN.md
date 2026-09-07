@@ -258,6 +258,7 @@ Processor は自身の実効パラメータを JSON で返せる (`Processor::pa
 
 - 前回取得時の `ETag` と `Last-Modified` を保存し、次回リクエストで `If-None-Match` / `If-Modified-Since` を送る。
 - 304 が返った場合は解析と Processor 適用をスキップし、`next_fetch_at` だけ更新する。
+- **設定を変えたときは検証子 (`etag` / `last_modified`) を捨てる。** 304 で処理がスキップされると、表示名や Processor 連鎖を変えても上流が更新されるまで配信内容が古いままになる。表示名・識別子の変更、Processor 連鎖の更新、即時取得の 3 か所で検証子を消し、次の取得で必ず作り直させる。
 - User-Agent は `rss-proxy/<version>` を明示する。
 
 ### 6.3 エラー処理

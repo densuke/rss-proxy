@@ -105,6 +105,15 @@ fn fetch_now(store: &Store, slug: &str) -> Result<()> {
         .feed_by_slug(slug)?
         .with_context(|| format!("フィード {slug} は登録されていません"))?;
 
+    // 304 が返ると解析も Processor 適用も走らない。「今すぐ取得」で
+    // 何も変わらないのは意図に反するので、必ず取り直す
+    store.clear_validators(feed.id)?;
+    let feed = store.feed_by_slug(slug)?.expect("直前に読んだ feed");
+
+    // 「今すぐ取得」で 304 が返ると処理が走らず、設定変更が反映されない
+    store.clear_validators(feed.id)?;
+    let feed = store.feed_by_slug(slug)?.expect("直前に取得した feed");
+
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?

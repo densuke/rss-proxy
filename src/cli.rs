@@ -167,6 +167,8 @@ fn feed(store: &Store, cmd: FeedCmd) -> Result<String> {
                 store
                     .rename(f.id, &next, label.as_deref())
                     .with_context(|| format!("{next} は既に使われています"))?;
+                // 表示名は配信する title にも使う。作り直させる
+                store.clear_validators(f.id)?;
             }
             if let Some(interval) = interval {
                 store.set_interval(f.id, interval)?;
@@ -211,6 +213,7 @@ fn processor(store: &Store, cmd: ProcCmd) -> Result<String> {
             let at = at.unwrap_or(chain.len()).min(chain.len());
             chain.insert(at, (kind.clone(), built.params()));
             store.set_processors(f.id, &chain)?;
+            store.clear_validators(f.id)?;
             Ok(format!("{feed} の {at} 番目に {kind} を追加しました"))
         }
         ProcCmd::Detach { feed, position } => {
@@ -221,6 +224,7 @@ fn processor(store: &Store, cmd: ProcCmd) -> Result<String> {
             }
             let (kind, _) = chain.remove(position);
             store.set_processors(f.id, &chain)?;
+            store.clear_validators(f.id)?;
             Ok(format!("{feed} から {kind} を外しました"))
         }
         ProcCmd::Move { feed, from, to } => {
@@ -232,6 +236,7 @@ fn processor(store: &Store, cmd: ProcCmd) -> Result<String> {
             let item = chain.remove(from);
             chain.insert(to, item);
             store.set_processors(f.id, &chain)?;
+            store.clear_validators(f.id)?;
             Ok(format!("{feed} の {from} を {to} へ移動しました"))
         }
     }

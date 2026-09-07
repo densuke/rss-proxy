@@ -238,6 +238,19 @@ impl Store {
         Ok(())
     }
 
+    /// 条件付き GET の検証子を捨てる。
+    ///
+    /// 304 が返ると解析も Processor 適用も行われないため、設定を変えても
+    /// 上流が変わるまで配信内容が古いままになる。設定変更時と即時取得時に
+    /// これを呼び、次の取得で必ず作り直させる。
+    pub fn clear_validators(&self, id: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE feeds SET etag = NULL, last_modified = NULL WHERE id = ?1",
+            [id],
+        )?;
+        Ok(())
+    }
+
     /// 次回取得時刻を直接指定する。「今すぐ取得」で 0 にして tick に拾わせる。
     pub fn set_next_fetch_at(&self, id: i64, at: i64) -> Result<()> {
         self.conn.execute(
