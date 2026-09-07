@@ -5,7 +5,8 @@ use std::collections::HashSet;
 use crate::model::{Feed, Item};
 use crate::proc::{Processor, ProcessorError};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Key {
     Guid,
     #[default]
@@ -13,6 +14,8 @@ pub enum Key {
     NormalizedTitle,
 }
 
+#[derive(Debug, Default, serde::Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct Dedupe {
     pub key: Key,
 }

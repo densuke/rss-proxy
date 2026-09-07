@@ -83,7 +83,7 @@ crate のバージョンは実装着手時に最新安定版を確認して決�
 
 musl による静的リンク (12.3 節) の制約から、以下は選択の余地がない。
 
-- reqwest は `rustls-tls` を使う (既定の native-tls / OpenSSL は musl 静的ビルドでリンクできない)
+- reqwest は `rustls` フィーチャを使う (既定の native-tls / OpenSSL は musl 静的ビルドでリンクできない)
 - rusqlite は `bundled` フィーチャを使う (システムの libsqlite3 を静的リンクできない)
 
 テンプレートエンジンは導入しない。Web UI は 2 画面のみで、`include_str!` と `format!` で足りる。
@@ -185,7 +185,7 @@ item 間の重複除去。先に出現したものを残す。巡回のたびに
 
 - フィードごとに `interval_secs` を設定する。既定 900 秒 (15 分)。
 - スケジューラは 60 秒間隔の tick ループを 1 本だけ持ち、毎 tick で SQLite から `next_fetch_at <= now` のフィードを取得して処理する。フィードごとにタスクを常駐させる方式は取らない (設定変更の反映と資源管理が煩雑になるため)。
-- 1 tick 内の同時取得数は上限を設ける (既定 4)。
+- 1 tick 内の処理は逐次で行う。SQLite の接続は `Sync` ではなく、共有したまま並行実行できない。巡回間隔に対してフィード数が十分少ないうちは逐次で足りる。必要になったら接続プールに置き換える。
 
 ### 6.2 条件付き GET
 
@@ -243,7 +243,7 @@ CREATE TABLE outputs (
 
 処理後の XML をそのまま保存する。item 単位で正規化して保存する設計も考えられるが、配信のたびに再構築するコストが増えるだけで利点がない。
 
-設定ファイル (TOML) には listen アドレスと DB パスのみを置く。フィードと Processor の設定はすべて DB に持つ。Web UI からの書き込みがあるため、設定を平文ファイルに分散させると競合する。
+設定ファイルは持たない。listen アドレスと DB パスの 2 つしか外部設定がなく、いずれもコマンドライン引数 (`--listen` / `--db`) で既定値付きで指定できる。フィードと Processor の設定はすべて DB に持つ。
 
 ## 8. HTTP API と Web UI
 
@@ -275,7 +275,7 @@ CREATE TABLE outputs (
 サーバーと同一バイナリ。サブコマンド構成。
 
 ```
-rss-proxy serve [--config PATH]
+rss-proxy serve [--listen 127.0.0.1:8080] [--db PATH]
 
 rss-proxy feed add <name> <url> [--interval 900]
 rss-proxy feed list
@@ -293,33 +293,26 @@ rss-proxy preview <name>             # 適用前後を標準出力に表示
 
 CLI はサーバー API を経由せず SQLite に直接アクセスする。サーバーが停止していても設定を編集でき、初期セットアップやトラブル時の復旧が容易になる。WAL モードにより稼働中のサーバーとの同時アクセスも安全。
 
-`preview` は Processor の効果を確認する手段として v1 に含める。Web UI 側のプレビュー画面は見送る (14.3)。
+`preview` は保存済みの配信内容を表示する。Processor の効果はこれで確認する。Web UI 側のプレビュー画面は見送る (14.3)。
 
 ## 10. ディレクトリ構成
 
 ```
 src/
-├── main.rs            # エントリポイント、CLI ディスパッチ
-├── config.rs          # 設定ファイル読み込み
+├── main.rs            # エントリポイント、引数解析、serve の起動
 ├── model.rs           # Feed, Item
 ├── fetch.rs           # HTTP 取得、条件付き GET
 ├── parse.rs           # feed-rs → model 変換
 ├── render.rs          # model → RSS 2.0 XML
-├── store/
-│   ├── mod.rs
-│   ├── schema.rs      # マイグレーション
-│   └── queries.rs
+├── store.rs           # SQLite (スキーマとクエリ)
 ├── proc/
 │   ├── mod.rs         # trait Processor、レジストリ、チェーン実行
 │   ├── dedupe.rs
 │   └── vendor/
 │       ├── mod.rs
 │       └── google_news.rs   # google_news_cluster
-├── scheduler.rs       # 巡回ループ
-├── cli/
-│   ├── mod.rs
-│   ├── feed.rs
-│   └── proc.rs
+├── scheduler.rs       # 巡回ループ、バックオフ
+├── cli.rs             # feed / proc サブコマンド
 └── web/
     ├── mod.rs         # axum ルーター
     ├── api.rs
@@ -412,7 +405,7 @@ After=network-online.target
 Type=simple
 User=rss-proxy
 Group=rss-proxy
-ExecStart=/usr/local/bin/rss-proxy serve --config /etc/rss-proxy/config.toml
+ExecStart=/usr/local/bin/rss-proxy serve --db /var/lib/rss-proxy/rss-proxy.db
 Restart=on-failure
 StateDirectory=rss-proxy
 NoNewPrivileges=yes
