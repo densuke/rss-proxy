@@ -253,6 +253,12 @@ impl Store {
     /// 正規化を先に置く。［PR］ が [PR] になってから除外判定にかかるため。
     /// 不要なら画面か CLI から空にできる。
     fn seed_global_processors(&self) -> Result<()> {
+        // 既存フィードは検証子を持っている。そのままだと 304 で処理がスキップされ、
+        // 入れたばかりの連鎖が反映されない
+        self.conn.execute_batch(
+            "UPDATE feeds SET etag = NULL, last_modified = NULL, next_fetch_at = 0",
+        )?;
+
         self.set_global_processors(&[
             // title だけを直すと、title と description を突き合わせる処理
             // (google_news_cluster など) が一致しなくなる。両方まとめて直す

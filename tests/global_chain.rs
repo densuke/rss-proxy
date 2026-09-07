@@ -64,3 +64,45 @@ fn the_global_chain_is_independent_of_any_feed() {
     s.remove_feed("news").unwrap();
     assert_eq!(s.global_processors().unwrap().len(), 1);
 }
+
+/// 既定のグローバル連鎖を入れる移行は、全フィードを作り直しの対象にする。
+/// そうしないと 304 で処理がスキップされ、新しい連鎖が反映されない。
+#[test]
+fn seeding_the_defaults_reschedules_existing_feeds() {
+    use rusqlite::Connection;
+
+    let dir = std::env::temp_dir().join(format!("rss-proxy-seed-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("seed.db");
+    let _ = std::fs::remove_file(&path);
+
+    // グローバル連鎖を持たない時点の DB を作り、検証子と先の予定を入れておく
+    {
+        let s = Store::open(&path).unwrap();
+        s.add_feed(&NewFeed {
+            slug: Some("news".into()),
+            label: None,
+            url: "https://example.com/f.xml".into(),
+            interval_secs: 900,
+        })
+        .unwrap();
+        let id = s.feed_by_slug("news").unwrap().unwrap().id;
+        s.mark_success(id, Some("W/\"1\""), Some("Mon"), 9_999_999_999)
+            .unwrap();
+    }
+    Connection::open(&path)
+        .unwrap()
+        .execute_batch("DELETE FROM global_processors; PRAGMA user_version = 2")
+        .unwrap();
+
+    let s = Store::open(&path).unwrap();
+    assert!(!s.global_processors().unwrap().is_empty(), "既定が入る");
+
+    let f = s.feed_by_slug("news").unwrap().unwrap();
+    assert!(
+        f.etag.is_none() && f.last_modified.is_none() && f.next_fetch_at == 0,
+        "移行後に作り直しの対象になっていない"
+    );
+
+    std::fs::remove_file(&path).ok();
+}
