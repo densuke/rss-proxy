@@ -64,17 +64,15 @@ pub fn is_internal_host(host: &str) -> bool {
         Ok(IpAddr::V4(ip)) => {
             ip.is_loopback()
                 || ip.is_private()
-                || ip.is_link_local()   // 169.254.0.0/16 (クラウドのメタデータ)
+                // 169.254.0.0/16。クラウドのメタデータがここにある
+                || ip.is_link_local()
                 || ip.is_unspecified()
-                || ip.is_broadcast()
-                || ip.is_documentation()
         }
         Ok(IpAddr::V6(ip)) => {
             ip.is_loopback()
                 || ip.is_unspecified()
-                // ユニークローカル (fc00::/7) とリンクローカル (fe80::/10)
-                || matches!(ip.segments()[0] & 0xfe00, 0xfc00)
-                || matches!(ip.segments()[0] & 0xffc0, 0xfe80)
+                || ip.is_unique_local()
+                || ip.is_unicast_link_local()
         }
         // ホスト名は解決してみないと分からない
         Err(_) => false,
