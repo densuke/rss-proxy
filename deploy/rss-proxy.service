@@ -1,0 +1,19 @@
+[Unit]
+Description=rss-proxy
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=rss-proxy
+Group=rss-proxy
+ExecStart=/usr/local/bin/rss-proxy serve --db /var/lib/rss-proxy/rss-proxy.db
+Restart=on-failure
+StateDirectory=rss-proxy
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

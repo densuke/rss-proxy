@@ -334,6 +334,11 @@ tests/
 .github/workflows/
 ├── ci.yml
 └── release.yml
+
+deploy/
+├── rss-proxy.service    # systemd unit
+├── Caddyfile.example
+└── update.sh            # リリース取得、検証、差し替え、再起動
 ```
 
 ## 11. テスト方針

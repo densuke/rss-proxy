@@ -1,0 +1,13 @@
+# 配信パスは認証なし、管理画面は Basic 認証で保護する。
+# ハッシュは caddy hash-password で生成する。
+rss.example.com {
+    handle /feeds/* {
+        reverse_proxy 127.0.0.1:8080
+    }
+    handle {
+        basic_auth {
+            admin <bcrypt-hash>
+        }
+        reverse_proxy 127.0.0.1:8080
+    }
+}
