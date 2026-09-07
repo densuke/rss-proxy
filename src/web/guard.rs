@@ -18,8 +18,8 @@ pub async fn require_admin(
     request: axum::extract::Request,
     next: Next,
 ) -> Response {
-    if let Err(response) = check_origin(&request) {
-        return response;
+    if let Some(rejection) = reject_cross_origin(&request) {
+        return rejection;
     }
 
     let Some(admin) = admin else {
@@ -84,9 +84,11 @@ fn parse_basic(header: &str) -> Option<(String, String)> {
 ///
 /// `Origin` も `Referer` もない要求は通す。ブラウザ以外からの操作 (curl など) で
 /// あり、資格情報が自動付与される経路ではないため。
-fn check_origin(request: &axum::extract::Request) -> Result<(), Response> {
+///
+/// 拒否する場合はその応答を返す。通してよければ `None`。
+fn reject_cross_origin(request: &axum::extract::Request) -> Option<Response> {
     if request.method() == Method::GET || request.method() == Method::HEAD {
-        return Ok(());
+        return None;
     }
 
     let header_value = |name: header::HeaderName| {
@@ -96,12 +98,9 @@ fn check_origin(request: &axum::extract::Request) -> Result<(), Response> {
             .and_then(|v| v.to_str().ok())
             .map(str::to_string)
     };
-    let Some(source) = header_value(header::ORIGIN).or_else(|| header_value(header::REFERER))
-    else {
-        return Ok(());
-    };
+    let source = header_value(header::ORIGIN).or_else(|| header_value(header::REFERER))?;
     let Some(host) = header_value(header::HOST) else {
-        return Err((StatusCode::FORBIDDEN, "Host ヘッダがありません").into_response());
+        return Some((StatusCode::FORBIDDEN, "Host ヘッダがありません").into_response());
     };
 
     // scheme を除いた authority で比べる。前段が TLS を終端すると scheme は一致しない
@@ -111,13 +110,11 @@ fn check_origin(request: &axum::extract::Request) -> Result<(), Response> {
         .unwrap_or(&source);
     let authority = authority.split('/').next().unwrap_or(authority);
 
-    if authority == host {
-        Ok(())
-    } else {
-        Err((
+    (authority != host).then(|| {
+        (
             StatusCode::FORBIDDEN,
             "別オリジンからの操作は受け付けません",
         )
-            .into_response())
-    }
+            .into_response()
+    })
 }
