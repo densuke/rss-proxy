@@ -2,7 +2,7 @@
 //! ここは判定結果をどう扱うかだけを決める。
 
 use crate::model::Feed;
-use crate::proc::{Processor, ProcessorError};
+use crate::proc::{Documents, Processor, ProcessorError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -55,7 +55,7 @@ impl Processor for Paywall {
         serde_json::to_string(self).expect("paywall のパラメータを直列化できない")
     }
 
-    fn apply(&self, mut feed: Feed) -> Result<Feed, ProcessorError> {
+    fn apply(&self, mut feed: Feed, _docs: &Documents) -> Result<Feed, ProcessorError> {
         if self.unknown == Unknown::Exclude {
             feed.items.retain(|i| i.paywalled.is_some());
         }

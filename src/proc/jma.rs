@@ -1,0 +1,254 @@
+//! 気象庁の防災情報 XML から、指定した市区町村の警報・注意報を取り出す。
+//!
+//! 気象庁のフィード (`extra.xml`) の entry は、それ自体には市区町村の情報を持たない。
+//! リンク先の XML を取得して初めて分かる。そこで [`Processor::wants`] で必要な
+//! XML を宣言し、取得結果を受け取って description に展開する。
+//!
+//! 取りに行く数を抑えるための絞り込みが 2 段ある。
+//!
+//! 1. **URL に府県予報区コードが入っている** (`..._VPWW53_280000.xml` の 280000)。
+//!    市区町村名から必要なコードを引き、一致する entry だけを対象にする。ここは通信しない
+//! 2. **予報区ごとに最新の 1 件だけ**を取る。古い発表は上書きされている
+//!
+//! 文書型は `VPWW53` (気象特別警報・警報・注意報) のみを使う。`VPWW54` は旧形式の
+//! 重複で、`VPWW55`/`56`/`58`/`59` は同じ事象をレベル表記で分割したもの。
+//! いずれも追加の情報を持たない。
+
+use std::collections::HashMap;
+use std::sync::LazyLock;
+
+use crate::model::{Feed, Item};
+use crate::proc::{Documents, Processor, ProcessorError};
+
+/// 総合版の情報種別コード。
+const DOCUMENT_TYPE: &str = "VPWW53";
+/// 市区町村単位の警報・注意報が入るブロック。
+const MUNICIPALITY_BLOCK: &str = "気象警報・注意報（市町村等）";
+
+/// 市区町村名 → 府県予報区コード。気象庁の area.json から生成した表。
+static AREAS: LazyLock<Vec<(&'static str, &'static str)>> = LazyLock::new(|| {
+    include_str!("jma_areas.csv")
+        .lines()
+        .filter(|l| !l.starts_with('#') && !l.is_empty())
+        .filter_map(|l| l.split_once(','))
+        .collect()
+});
+
+#[derive(Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct JmaWarning {
+    /// 対象の市区町村名。前方一致するので「神戸市」で 9 区すべてを拾える
+    pub areas: Vec<String>,
+    /// 残す種別。部分一致。空なら全部。「警報」は「特別警報」も拾う
+    pub kinds: Vec<String>,
+}
+
+impl Processor for JmaWarning {
+    fn name(&self) -> &'static str {
+        "jma_warning"
+    }
+
+    fn params(&self) -> String {
+        serde_json::to_string(self).expect("jma_warning のパラメータを直列化できない")
+    }
+
+    fn wants(&self, feed: &Feed) -> Vec<String> {
+        let codes = self.office_codes();
+        if codes.is_empty() {
+            return Vec::new();
+        }
+        // 予報区ごとに最新の 1 件だけ。古い発表は上書きされている
+        let mut latest: HashMap<&str, (&str, i64)> = HashMap::new();
+        for item in &feed.items {
+            let Some(link) = item.link.as_deref() else {
+                continue;
+            };
+            let Some(code) = office_code_of(link) else {
+                continue;
+            };
+            if !codes.contains(&code) {
+                continue;
+            }
+            let at = item.published.map(|t| t.timestamp()).unwrap_or(0);
+            let entry = latest.entry(code).or_insert((link, at));
+            if at > entry.1 {
+                *entry = (link, at);
+            }
+        }
+        let mut urls: Vec<String> = latest.values().map(|(u, _)| (*u).to_string()).collect();
+        urls.sort();
+        urls
+    }
+
+    fn apply(&self, mut feed: Feed, docs: &Documents) -> Result<Feed, ProcessorError> {
+        let wanted = self.wants(&feed);
+        feed.items.retain_mut(|item| {
+            let Some(link) = item.link.clone() else {
+                return false;
+            };
+            // wants で選ばれなかった entry (旧形式・他県・古い発表) は落とす
+            if !wanted.contains(&link) {
+                return false;
+            }
+            // まだ取得できていない文書は、次の巡回まで出さない
+            let Some(xml) = docs.get(&link) else {
+                return false;
+            };
+            self.rewrite(item, xml)
+        });
+        Ok(feed)
+    }
+}
+
+impl JmaWarning {
+    /// 指定された市区町村を含む府県予報区コード。
+    fn office_codes(&self) -> Vec<&'static str> {
+        let mut codes: Vec<&'static str> = AREAS
+            .iter()
+            .filter(|(name, _)| self.areas.iter().any(|a| name.starts_with(a.as_str())))
+            .map(|(_, code)| *code)
+            .collect();
+        codes.sort_unstable();
+        codes.dedup();
+        codes
+    }
+
+    /// 該当があれば item を書き換えて `true`。無ければ `false` で item ごと落とす。
+    fn rewrite(&self, item: &mut Item, xml: &str) -> bool {
+        let hits = self.warnings_in(xml);
+        if hits.is_empty() {
+            return false;
+        }
+        item.description = Some(
+            hits.iter()
+                .map(|(area, kinds)| format!("{area}: {}", kinds.join(", ")))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        );
+        if let Some(head) = headline_of(xml) {
+            item.title = Some(head);
+        }
+        true
+    }
+
+    fn warnings_in(&self, xml: &str) -> Vec<(String, Vec<String>)> {
+        parse_municipality_warnings(xml)
+            .into_iter()
+            .filter(|(area, _)| self.areas.iter().any(|a| area.starts_with(a.as_str())))
+            .filter_map(|(area, kinds)| {
+                let kinds: Vec<String> = kinds
+                    .into_iter()
+                    .filter(|k| {
+                        self.kinds.is_empty() || self.kinds.iter().any(|want| k.contains(want))
+                    })
+                    .collect();
+                (!kinds.is_empty()).then_some((area, kinds))
+            })
+            .collect()
+    }
+}
+
+/// `..._VPWW53_280000.xml` から府県予報区コードを取り出す。
+/// 総合版以外は対象にしない。
+fn office_code_of(url: &str) -> Option<&str> {
+    let name = url.rsplit('/').next()?;
+    let rest = name.strip_suffix(".xml")?;
+    let (head, code) = rest.rsplit_once('_')?;
+    head.ends_with(DOCUMENT_TYPE).then_some(code)
+}
+
+/// 見出しに使う Title を取り出す。
+///
+/// XML には Title が 2 つある。Control の Title は種別名 (「気象特別警報・警報・注意報」)、
+/// Head の Title は府県名入り (「兵庫県気象警報・注意報」)。後者を使う。
+fn headline_of(xml: &str) -> Option<String> {
+    let mut reader = quick_xml::Reader::from_str(xml);
+    let mut in_title = false;
+    let mut titles: Vec<String> = Vec::new();
+    let mut text = String::new();
+
+    loop {
+        match reader.read_event() {
+            Ok(quick_xml::events::Event::Start(e)) => {
+                in_title = e.local_name().as_ref() == "Title";
+                text.clear();
+            }
+            Ok(quick_xml::events::Event::Text(t)) if in_title => text.push_str(t.as_ref()),
+            Ok(quick_xml::events::Event::End(e)) => {
+                if e.local_name().as_ref() == "Title" {
+                    let value = text.trim().to_string();
+                    if !value.is_empty() {
+                        titles.push(value);
+                    }
+                }
+                in_title = false;
+                text.clear();
+            }
+            Ok(quick_xml::events::Event::Eof) | Err(_) => break,
+            _ => {}
+        }
+        if titles.len() >= 2 {
+            break;
+        }
+    }
+    titles.pop()
+}
+
+/// 市町村等ブロックから (地域名, 種別) を取り出す。
+fn parse_municipality_warnings(xml: &str) -> Vec<(String, Vec<String>)> {
+    let mut reader = quick_xml::Reader::from_str(xml);
+    let mut out: Vec<(String, Vec<String>)> = Vec::new();
+
+    let mut in_block = false;
+    let mut path: Vec<String> = Vec::new();
+    let mut area: Option<String> = None;
+    let mut kinds: Vec<String> = Vec::new();
+    let mut text = String::new();
+
+    loop {
+        match reader.read_event() {
+            Ok(quick_xml::events::Event::Start(e)) => {
+                let name = e.local_name().as_ref().to_string();
+                if name == "Warning" {
+                    in_block = e
+                        .attributes()
+                        .flatten()
+                        .any(|a| a.value.as_ref() == MUNICIPALITY_BLOCK);
+                }
+                if in_block && name == "Item" {
+                    area = None;
+                    kinds.clear();
+                }
+                path.push(name);
+                text.clear();
+            }
+            Ok(quick_xml::events::Event::Text(t)) => text.push_str(t.as_ref()),
+            Ok(quick_xml::events::Event::End(e)) => {
+                let name = e.local_name().as_ref().to_string();
+                let value = text.trim().to_string();
+                if in_block && name == "Name" && !value.is_empty() {
+                    // 親が Area なら地域名、Kind なら種別
+                    match path.get(path.len().wrapping_sub(2)).map(String::as_str) {
+                        Some("Area") if area.is_none() => area = Some(value),
+                        Some("Kind") if value != "解除" => kinds.push(value),
+                        _ => {}
+                    }
+                }
+                if in_block && name == "Item" {
+                    if let (Some(a), false) = (area.take(), kinds.is_empty()) {
+                        out.push((a, std::mem::take(&mut kinds)));
+                    }
+                    kinds.clear();
+                }
+                if name == "Warning" {
+                    in_block = false;
+                }
+                path.pop();
+                text.clear();
+            }
+            Ok(quick_xml::events::Event::Eof) | Err(_) => break,
+            _ => {}
+        }
+    }
+    out
+}

@@ -1,7 +1,7 @@
 use chrono::{Duration, Utc};
 use rss_proxy::model::{Feed, Item};
-use rss_proxy::proc::Processor;
 use rss_proxy::proc::max_age::MaxAge;
+use rss_proxy::proc::{Documents, Processor};
 
 fn item(title: &str, hours_ago: Option<i64>) -> Item {
     Item {
@@ -36,12 +36,15 @@ fn titles(feed: &Feed) -> Vec<String> {
 #[test]
 fn drops_items_older_than_the_limit() {
     let out = MaxAge { hours: 24 }
-        .apply(feed(vec![
-            item("1時間前", Some(1)),
-            item("23時間前", Some(23)),
-            item("25時間前", Some(25)),
-            item("1週間前", Some(24 * 7)),
-        ]))
+        .apply(
+            feed(vec![
+                item("1時間前", Some(1)),
+                item("23時間前", Some(23)),
+                item("25時間前", Some(25)),
+                item("1週間前", Some(24 * 7)),
+            ]),
+            &Documents::empty(),
+        )
         .unwrap();
 
     assert_eq!(titles(&out), vec!["1時間前", "23時間前"]);
@@ -51,7 +54,10 @@ fn drops_items_older_than_the_limit() {
 fn items_without_a_date_are_kept() {
     // 日時が分からないものは古いかどうか判断できない。落とさない
     let out = MaxAge { hours: 1 }
-        .apply(feed(vec![item("日時なし", None), item("古い", Some(100))]))
+        .apply(
+            feed(vec![item("日時なし", None), item("古い", Some(100))]),
+            &Documents::empty(),
+        )
         .unwrap();
 
     assert_eq!(titles(&out), vec!["日時なし"]);
@@ -61,7 +67,7 @@ fn items_without_a_date_are_kept() {
 fn future_dates_are_kept() {
     // 上流のタイムゾーン誤りなどで未来になることがある。古くはないので残す
     let out = MaxAge { hours: 24 }
-        .apply(feed(vec![item("未来", Some(-5))]))
+        .apply(feed(vec![item("未来", Some(-5))]), &Documents::empty())
         .unwrap();
     assert_eq!(out.items.len(), 1);
 }
@@ -69,7 +75,10 @@ fn future_dates_are_kept() {
 #[test]
 fn zero_hours_removes_everything_dated() {
     let out = MaxAge { hours: 0 }
-        .apply(feed(vec![item("1時間前", Some(1)), item("日時なし", None)]))
+        .apply(
+            feed(vec![item("1時間前", Some(1)), item("日時なし", None)]),
+            &Documents::empty(),
+        )
         .unwrap();
     assert_eq!(titles(&out), vec!["日時なし"]);
 }

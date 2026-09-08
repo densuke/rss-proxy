@@ -1,7 +1,7 @@
 use rss_proxy::model::{Feed, Item};
-use rss_proxy::proc::Processor;
 use rss_proxy::proc::Target;
 use rss_proxy::proc::exclude::Exclude;
+use rss_proxy::proc::{Documents, Processor};
 
 fn item(title: &str, description: &str) -> Item {
     Item {
@@ -39,12 +39,15 @@ fn removes_items_whose_title_contains_any_keyword() {
         words: vec!["スポーツ".into(), "競馬".into()],
         target: Target::Title,
     }
-    .apply(feed(vec![
-        item("プロ野球のスポーツ面", ""),
-        item("政治の話題", ""),
-        item("競馬の結果", ""),
-        item("経済ニュース", ""),
-    ]))
+    .apply(
+        feed(vec![
+            item("プロ野球のスポーツ面", ""),
+            item("政治の話題", ""),
+            item("競馬の結果", ""),
+            item("経済ニュース", ""),
+        ]),
+        &Documents::empty(),
+    )
     .unwrap();
 
     assert_eq!(titles(&out), vec!["政治の話題", "経済ニュース"]);
@@ -56,7 +59,10 @@ fn matching_is_case_insensitive_for_ascii() {
         words: vec!["abema".into()],
         target: Target::Title,
     }
-    .apply(feed(vec![item("ABEMA で配信", ""), item("残す記事", "")]))
+    .apply(
+        feed(vec![item("ABEMA で配信", ""), item("残す記事", "")]),
+        &Documents::empty(),
+    )
     .unwrap();
 
     assert_eq!(titles(&out), vec!["残す記事"]);
@@ -70,7 +76,7 @@ fn description_is_only_checked_when_asked() {
         words: vec!["スポーツ".into()],
         target: Target::Title,
     }
-    .apply(feed(items.clone()))
+    .apply(feed(items.clone()), &Documents::empty())
     .unwrap();
     assert_eq!(kept.items.len(), 1, "既定では title だけを見る");
 
@@ -78,7 +84,7 @@ fn description_is_only_checked_when_asked() {
         words: vec!["スポーツ".into()],
         target: Target::Both,
     }
-    .apply(feed(items))
+    .apply(feed(items), &Documents::empty())
     .unwrap();
     assert!(removed.items.is_empty());
 }
@@ -89,7 +95,10 @@ fn html_in_the_description_does_not_hide_a_keyword() {
         words: vec!["スポーツ".into()],
         target: Target::Both,
     }
-    .apply(feed(vec![item("見出し", "<b>スポ</b>ーツ")]))
+    .apply(
+        feed(vec![item("見出し", "<b>スポ</b>ーツ")]),
+        &Documents::empty(),
+    )
     .unwrap();
 
     assert!(out.items.is_empty(), "タグをまたいだ語も検出する");
@@ -101,7 +110,7 @@ fn no_keywords_removes_nothing() {
         words: vec![],
         target: Target::Both,
     }
-    .apply(feed(vec![item("何でも", "何でも")]))
+    .apply(feed(vec![item("何でも", "何でも")]), &Documents::empty())
     .unwrap();
     assert_eq!(out.items.len(), 1);
 }
@@ -115,7 +124,7 @@ fn items_without_the_target_field_are_kept() {
         words: vec!["x".into()],
         target: Target::Title,
     }
-    .apply(feed(vec![no_title]))
+    .apply(feed(vec![no_title]), &Documents::empty())
     .unwrap();
     assert_eq!(out.items.len(), 1);
 }

@@ -287,6 +287,25 @@ Google ニュースの `<link>` はリダイレクタで、元記事の URL を�
 exclude {"words":["- 日本経済新聞"],"target":"title"}
 ```
 
+### 5.1.3 外部文書を必要とする Processor
+
+一部の Processor は外部の文書を読まないと処理できない。気象庁のフィードは entry 自体に市区町村の情報を持たず、リンク先の XML を取って初めて分かる。
+
+I/O を Processor に入れると `Feed -> Feed` の純粋性が崩れ、テストにモックサーバーが要るようになる。そこで**必要な文書を宣言させ、取得は呼び出し側が行う**。
+
+```rust
+pub trait Processor {
+    fn apply(&self, feed: Feed, docs: &Documents) -> Result<Feed, ProcessorError>;
+
+    /// 処理に必要な外部文書の URL。既定は空
+    fn wants(&self, _feed: &Feed) -> Vec<String> { Vec::new() }
+}
+```
+
+`wants` も `apply` も純粋関数のまま。テストは取得済みの `Documents` を組み立てて渡すだけで、通信しない。
+
+取得は scheduler が行う。URL 単位でキャッシュし (`documents` テーブル)、1 回の巡回で取りに行く数に上限を置く (10 件)。気象庁の XML のように URL が発表ごとに変わるものは、一度取れば取り直す必要がない。
+
 ### 5.2 v1 で実装する Processor
 
 実測で問題を確認できたものだけを実装する。trait とレジストリさえあれば追加は 1 ファイル 30 行程度なので、必要が生じてから足す。見送った Processor の仕様は 14.2 に残す。

@@ -1,6 +1,6 @@
 use rss_proxy::model::{Feed, Item};
-use rss_proxy::proc::Processor;
 use rss_proxy::proc::paywall::{Action, Paywall, Unknown};
+use rss_proxy::proc::{Documents, Processor};
 
 fn item(title: &str, paywalled: Option<bool>) -> Item {
     Item {
@@ -39,11 +39,14 @@ fn excluding_drops_only_the_paid_ones() {
         unknown: Unknown::Keep,
         prefix: "[有料] ".into(),
     }
-    .apply(feed(vec![
-        item("有料", Some(true)),
-        item("無料", Some(false)),
-        item("不明", None),
-    ]))
+    .apply(
+        feed(vec![
+            item("有料", Some(true)),
+            item("無料", Some(false)),
+            item("不明", None),
+        ]),
+        &Documents::empty(),
+    )
     .unwrap();
 
     assert_eq!(titles(&out), vec!["無料", "不明"]);
@@ -56,11 +59,14 @@ fn unknown_can_be_dropped_too() {
         unknown: Unknown::Exclude,
         prefix: "[有料] ".into(),
     }
-    .apply(feed(vec![
-        item("有料", Some(true)),
-        item("無料", Some(false)),
-        item("不明", None),
-    ]))
+    .apply(
+        feed(vec![
+            item("有料", Some(true)),
+            item("無料", Some(false)),
+            item("不明", None),
+        ]),
+        &Documents::empty(),
+    )
     .unwrap();
 
     assert_eq!(titles(&out), vec!["無料"]);
@@ -73,11 +79,14 @@ fn marking_keeps_everything_and_labels_the_paid_ones() {
         unknown: Unknown::Keep,
         prefix: "[有料] ".into(),
     }
-    .apply(feed(vec![
-        item("有料", Some(true)),
-        item("無料", Some(false)),
-        item("不明", None),
-    ]))
+    .apply(
+        feed(vec![
+            item("有料", Some(true)),
+            item("無料", Some(false)),
+            item("不明", None),
+        ]),
+        &Documents::empty(),
+    )
     .unwrap();
 
     assert_eq!(titles(&out), vec!["[有料] 有料", "無料", "不明"]);
@@ -90,8 +99,10 @@ fn marking_twice_does_not_stack_the_label() {
         unknown: Unknown::Keep,
         prefix: "[有料] ".into(),
     };
-    let once = p.apply(feed(vec![item("記事", Some(true))])).unwrap();
-    let twice = p.apply(once).unwrap();
+    let once = p
+        .apply(feed(vec![item("記事", Some(true))]), &Documents::empty())
+        .unwrap();
+    let twice = p.apply(once, &Documents::empty()).unwrap();
     assert_eq!(titles(&twice), vec!["[有料] 記事"]);
 }
 
@@ -104,7 +115,7 @@ fn items_without_a_title_do_not_panic() {
         unknown: Unknown::Keep,
         prefix: "[有料] ".into(),
     }
-    .apply(feed(vec![bare]))
+    .apply(feed(vec![bare]), &Documents::empty())
     .unwrap();
     assert_eq!(out.items.len(), 1);
 }

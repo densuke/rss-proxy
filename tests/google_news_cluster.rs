@@ -1,5 +1,5 @@
-use rss_proxy::proc::Processor;
 use rss_proxy::proc::google_news::GoogleNewsCluster;
+use rss_proxy::proc::{Documents, Processor};
 use rss_proxy::{model::Item, parse};
 
 const FIXTURE: &str = include_str!("fixtures/google_news_headline.xml");
@@ -20,7 +20,12 @@ fn item(title: &str, description: Option<&str>) -> Item {
 fn apply_to_one(it: Item) -> Item {
     let mut feed = parse::parse(FIXTURE.as_bytes()).unwrap();
     feed.items = vec![it];
-    GoogleNewsCluster.apply(feed).unwrap().items.pop().unwrap()
+    GoogleNewsCluster
+        .apply(feed, &Documents::empty())
+        .unwrap()
+        .items
+        .pop()
+        .unwrap()
 }
 
 #[test]
@@ -94,7 +99,7 @@ fn missing_fields_do_not_panic() {
 fn every_fixture_item_loses_its_duplicate_head() {
     let feed = parse::parse(FIXTURE.as_bytes()).unwrap();
     let before = feed.items.clone();
-    let after = GoogleNewsCluster.apply(feed).unwrap();
+    let after = GoogleNewsCluster.apply(feed, &Documents::empty()).unwrap();
 
     assert_eq!(after.items.len(), before.len());
 

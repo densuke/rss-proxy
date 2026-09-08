@@ -6,7 +6,7 @@
 use chrono::{Duration, Utc};
 
 use crate::model::Feed;
-use crate::proc::{Processor, ProcessorError};
+use crate::proc::{Documents, Processor, ProcessorError};
 
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
@@ -30,7 +30,7 @@ impl Processor for MaxAge {
         serde_json::to_string(self).expect("max_age のパラメータを直列化できない")
     }
 
-    fn apply(&self, mut feed: Feed) -> Result<Feed, ProcessorError> {
+    fn apply(&self, mut feed: Feed, _docs: &Documents) -> Result<Feed, ProcessorError> {
         let limit = Utc::now() - Duration::hours(self.hours.max(0));
 
         // 日時を持たない item は古いかどうか判断できないので残す。

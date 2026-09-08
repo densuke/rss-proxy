@@ -11,6 +11,7 @@ use reqwest::Client;
 use crate::fetch::{self, Fetched};
 use crate::model::Feed;
 use crate::paywall::{self, Access};
+use crate::proc::Documents;
 use crate::store::{Feed as StoredFeed, Store};
 use crate::{parse, proc, render};
 
@@ -21,6 +22,10 @@ const MAX_BACKOFF_SECS: i64 = 6 * 3600;
 const MAX_PAYWALL_LOOKUPS: usize = 20;
 /// 有料判定の保持期間。配信から消えた記事の結果は使われない。
 const PAYWALL_CACHE_DAYS: i64 = 30;
+/// 1 回の巡回で取りに行く外部文書の数の上限。
+const MAX_DOCUMENT_FETCHES: usize = 10;
+/// 外部文書の保持期間。
+const DOCUMENT_CACHE_DAYS: i64 = 7;
 
 #[derive(Debug, thiserror::Error)]
 pub enum RefreshError {
@@ -109,7 +114,12 @@ async fn run(store: &Store, client: &Client, feed: &StoredFeed) -> Result<(), Re
         .map(|(kind, params)| proc::build(kind, params))
         .collect::<Result<Vec<_>, _>>()?;
 
-    let processed = chain.iter().try_fold(parsed, |feed, p| p.apply(feed))?;
+    // Processor が必要とする外部文書をここで取りに行く。
+    // Processor 自体は純粋なまま保ち、取得は呼び出し側の責務にする
+    let docs = gather_documents(store, client, &chain, &parsed).await;
+    let processed = chain
+        .iter()
+        .try_fold(parsed, |feed, p| p.apply(feed, &docs))?;
 
     store.set_output(feed.id, &render::to_rss2(&processed))?;
     if !title.is_empty() {
@@ -117,6 +127,58 @@ async fn run(store: &Store, client: &Client, feed: &StoredFeed) -> Result<(), Re
     }
     store.mark_success(feed.id, etag.as_deref(), last_modified.as_deref(), next)?;
     Ok(())
+}
+
+/// Processor が要求した外部文書を取得する。
+///
+/// URL 単位でキャッシュする。気象庁の XML のように URL が発表ごとに変わるものは
+/// 一度取れば取り直す必要がない。1 回の巡回で取りに行く数には上限を置く。
+async fn gather_documents(
+    store: &Store,
+    client: &Client,
+    chain: &[Box<dyn crate::proc::Processor>],
+    feed: &Feed,
+) -> Documents {
+    let mut docs = Documents::empty();
+    let mut wanted: Vec<String> = chain.iter().flat_map(|p| p.wants(feed)).collect();
+    wanted.sort();
+    wanted.dedup();
+
+    let mut fetches = 0;
+    for url in wanted {
+        match store.document_cached(&url) {
+            Ok(Some(body)) => {
+                docs.insert(url, body);
+                continue;
+            }
+            Ok(None) => {}
+            Err(e) => {
+                eprintln!("document cache {url}: {e}");
+                continue;
+            }
+        }
+        if fetches >= MAX_DOCUMENT_FETCHES {
+            // 残りは次の巡回で取る
+            break;
+        }
+        fetches += 1;
+        match fetch::fetch(client, &url, None, None).await {
+            Ok(Fetched::Body { bytes, .. }) => {
+                let body = String::from_utf8_lossy(&bytes).into_owned();
+                if let Err(e) = store.remember_document(&url, &body) {
+                    eprintln!("document cache {url}: {e}");
+                }
+                docs.insert(url, body);
+            }
+            Ok(Fetched::NotModified) => {}
+            Err(e) => eprintln!("document {url}: {e}"),
+        }
+    }
+    if fetches > 0 {
+        let before = Utc::now().timestamp() - DOCUMENT_CACHE_DAYS * 24 * 3600;
+        let _ = store.prune_documents(before);
+    }
+    docs
 }
 
 /// 各 item が有料記事かどうかを判定して埋める。

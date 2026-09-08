@@ -72,6 +72,13 @@ CREATE TABLE IF NOT EXISTS global_processors (
     params   TEXT NOT NULL
 );
 
+-- Processor が必要とする外部文書。URL が発表ごとに変わるものは取り直さない
+CREATE TABLE IF NOT EXISTS documents (
+    url        TEXT PRIMARY KEY,
+    body       TEXT NOT NULL,
+    fetched_at INTEGER NOT NULL
+);
+
 -- 有料記事の判定結果。1 記事につき 1 回だけ取りに行くため
 CREATE TABLE IF NOT EXISTS paywall_cache (
     url        TEXT PRIMARY KEY,
@@ -281,6 +288,29 @@ impl Store {
                     .into(),
             ),
         ])
+    }
+
+    /// 取得済みの外部文書。
+    pub fn document_cached(&self, url: &str) -> Result<Option<String>> {
+        self.conn
+            .query_row("SELECT body FROM documents WHERE url = ?1", [url], |r| {
+                r.get(0)
+            })
+            .optional()
+    }
+
+    pub fn remember_document(&self, url: &str, body: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO documents (url, body, fetched_at) VALUES (?1, ?2, ?3) \
+             ON CONFLICT(url) DO UPDATE SET body = ?2, fetched_at = ?3",
+            params![url, body, Utc::now().timestamp()],
+        )?;
+        Ok(())
+    }
+
+    pub fn prune_documents(&self, before: i64) -> Result<usize> {
+        self.conn
+            .execute("DELETE FROM documents WHERE fetched_at < ?1", [before])
     }
 
     /// 判定済みなら返す。無ければ取りに行く必要がある。

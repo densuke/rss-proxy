@@ -1,6 +1,7 @@
 pub mod dedupe;
 pub mod exclude;
 pub mod google_news;
+pub mod jma;
 pub mod max_age;
 pub mod normalize_width;
 pub mod paywall;
@@ -9,6 +10,7 @@ use crate::model::Feed;
 use crate::proc::dedupe::Dedupe;
 use crate::proc::exclude::Exclude;
 use crate::proc::google_news::GoogleNewsCluster;
+use crate::proc::jma::JmaWarning;
 use crate::proc::max_age::MaxAge;
 use crate::proc::normalize_width::NormalizeWidth;
 use crate::proc::paywall::Paywall;
@@ -21,10 +23,38 @@ pub enum ProcessorError {
     Params { kind: String, detail: String },
 }
 
+/// 取得済みの外部文書。URL で引く。
+///
+/// 一部の Processor は外部の文書を必要とする (気象庁の XML など)。
+/// それでも Processor 自体は純粋なままにしたいので、「何が必要か」を
+/// [`Processor::wants`] で宣言させ、取得は呼び出し側が行い、結果をここに入れて渡す。
+#[derive(Debug, Default)]
+pub struct Documents(std::collections::HashMap<String, String>);
+
+impl Documents {
+    pub fn empty() -> Self {
+        Self::default()
+    }
+
+    pub fn insert(&mut self, url: String, body: String) {
+        self.0.insert(url, body);
+    }
+
+    pub fn get(&self, url: &str) -> Option<&str> {
+        self.0.get(url).map(String::as_str)
+    }
+}
+
 /// フィードを変換する処理。副作用を持たない純粋な変換として実装する。
 pub trait Processor: Send + Sync {
     fn name(&self) -> &'static str;
-    fn apply(&self, feed: Feed) -> Result<Feed, ProcessorError>;
+    fn apply(&self, feed: Feed, docs: &Documents) -> Result<Feed, ProcessorError>;
+
+    /// 処理に必要な外部文書の URL。既定は空。
+    /// 取得は呼び出し側が行い、結果を `apply` の `docs` に入れて渡す。
+    fn wants(&self, _feed: &Feed) -> Vec<String> {
+        Vec::new()
+    }
 
     /// 実際に使われるパラメータを JSON で返す。
     /// 省略された項目は既定値で埋まるため、保存時にこれを書き戻すことで
@@ -126,6 +156,21 @@ const PAYWALL_PARAMS: &[ParamInfo] = &[
     },
 ];
 
+const JMA_PARAMS: &[ParamInfo] = &[
+    ParamInfo {
+        name: "areas",
+        description: "対象の市区町村名。前方一致するので「神戸市」で 9 区すべてを拾う。「神戸市北区」と書けばその区だけ",
+        default: "[]",
+        values: &[],
+    },
+    ParamInfo {
+        name: "kinds",
+        description: "残す種別。部分一致。空なら全部。「警報」は「特別警報」も拾う",
+        default: "[]",
+        values: &[],
+    },
+];
+
 const CATALOG: &[ProcessorInfo] = &[
     ProcessorInfo {
         kind: "google_news_cluster",
@@ -146,6 +191,11 @@ const CATALOG: &[ProcessorInfo] = &[
         kind: "normalize_width",
         summary: "全角の英数字と記号を半角に直す。カギ括弧・句読点・なかてん・波ダッシュはそのまま",
         params: NORMALIZE_WIDTH_PARAMS,
+    },
+    ProcessorInfo {
+        kind: "jma_warning",
+        summary: "気象庁専用。防災情報 XML から、指定した市区町村の警報・注意報を取り出して本文にする。該当のない発表は落とす",
+        params: JMA_PARAMS,
     },
     ProcessorInfo {
         kind: "paywall",
@@ -189,6 +239,9 @@ pub fn build(kind: &str, params: &str) -> Result<Box<dyn Processor>, ProcessorEr
         )),
         "normalize_width" => Ok(Box::new(
             serde_json::from_str::<NormalizeWidth>(json).map_err(parse)?,
+        )),
+        "jma_warning" => Ok(Box::new(
+            serde_json::from_str::<JmaWarning>(json).map_err(parse)?,
         )),
         "paywall" => Ok(Box::new(
             serde_json::from_str::<Paywall>(json).map_err(parse)?,

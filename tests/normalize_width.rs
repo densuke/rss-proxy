@@ -1,7 +1,7 @@
 use rss_proxy::model::{Feed, Item};
-use rss_proxy::proc::Processor;
 use rss_proxy::proc::Target;
 use rss_proxy::proc::normalize_width::NormalizeWidth;
+use rss_proxy::proc::{Documents, Processor};
 
 fn item(title: &str, description: &str) -> Item {
     Item {
@@ -28,7 +28,7 @@ fn feed(items: Vec<Item>) -> Feed {
 
 fn apply(target: Target, title: &str, description: &str) -> Item {
     NormalizeWidth { target }
-        .apply(feed(vec![item(title, description)]))
+        .apply(feed(vec![item(title, description)]), &Documents::empty())
         .unwrap()
         .items
         .pop()
@@ -107,7 +107,7 @@ fn missing_fields_do_not_panic() {
     let out = NormalizeWidth {
         target: Target::Both,
     }
-    .apply(feed(vec![bare]))
+    .apply(feed(vec![bare]), &Documents::empty())
     .unwrap();
     assert_eq!(out.items.len(), 1);
 }

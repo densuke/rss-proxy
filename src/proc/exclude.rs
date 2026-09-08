@@ -5,7 +5,7 @@
 
 use crate::html::to_plain_text;
 use crate::model::{Feed, Item};
-use crate::proc::{Processor, ProcessorError, Target};
+use crate::proc::{Documents, Processor, ProcessorError, Target};
 
 #[derive(Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
@@ -24,7 +24,7 @@ impl Processor for Exclude {
         serde_json::to_string(self).expect("exclude のパラメータを直列化できない")
     }
 
-    fn apply(&self, mut feed: Feed) -> Result<Feed, ProcessorError> {
+    fn apply(&self, mut feed: Feed, _docs: &Documents) -> Result<Feed, ProcessorError> {
         if self.words.is_empty() {
             return Ok(feed);
         }

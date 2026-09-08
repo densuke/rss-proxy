@@ -14,7 +14,7 @@ use regex::Regex;
 
 use crate::html::to_plain_text;
 use crate::model::Feed;
-use crate::proc::{Processor, ProcessorError};
+use crate::proc::{Documents, Processor, ProcessorError};
 
 // ponytail: 正規表現による抽出。対象は NFE/5.0 が機械生成する定型 HTML に限られ、
 // li の入れ子も属性中の '>' も現れない。崩れたら html5ever ベースに置き換える。
@@ -30,7 +30,7 @@ impl Processor for GoogleNewsCluster {
         "google_news_cluster"
     }
 
-    fn apply(&self, mut feed: Feed) -> Result<Feed, ProcessorError> {
+    fn apply(&self, mut feed: Feed, _docs: &Documents) -> Result<Feed, ProcessorError> {
         for item in &mut feed.items {
             let (Some(title), Some(description)) = (&item.title, &item.description) else {
                 continue;

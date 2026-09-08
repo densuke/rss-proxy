@@ -36,6 +36,28 @@ RSS リーダーには `http://127.0.0.1:8080/feeds/gnews` を登録する。管
 
 DB のパスは `--db` で指定する (既定 `rss-proxy.db`)。
 
+## 気象庁の防災情報
+
+気象庁のフィード (`https://www.data.jma.go.jp/developer/xml/feed/extra.xml`) は、entry 自体に市区町村の情報を持たない。リンク先の XML を取って初めて分かる。
+
+```
+jma_warning {"areas":["神戸市","佐倉市","名古屋市"]}
+jma_warning {"areas":["神戸市"],"kinds":["警報"]}    # 注意報を除く
+```
+
+市区町村名は前方一致。`神戸市` で 9 区すべて、`神戸市北区` でその区だけ。複数の県にまたがっても指定できる。該当のない発表は落とす。
+
+配信される内容:
+
+```
+兵庫県気象警報・注意報
+  神戸市東灘区: 大雨注意報, 雷注意報
+  神戸市灘区: 大雨注意報, 雷注意報
+  ...
+```
+
+実測で 606 entry のフィードから 3 件の取得まで絞り込む。URL に府県コードが入っているため、取りに行く前に対象を判別できる。
+
 ## 有料記事の判定
 
 対応している媒体は読売新聞と日本経済新聞。記事ページを取得して、その記事自身を指す構造化データで判定する。
@@ -98,6 +120,7 @@ $ rss-proxy global show
 | `exclude` | 指定した語を含む item を取り除く | `words`: 語の配列<br>`target`: `title` / `description` / `both` (既定 `title`) |
 | `max_age` | 指定した時間より古い item を落とす | `hours` (既定 24) |
 | `normalize_width` | 全角の英数字と記号を半角に直す。カギ括弧・句読点・なかてん・波ダッシュはそのまま | `target` (既定 `title`) |
+| `jma_warning` | 気象庁の防災情報 XML から、指定した市区町村の警報・注意報を取り出して本文にする | `areas`: 市区町村名の配列 (前方一致)<br>`kinds`: 種別の配列 (空で全部) |
 | `paywall` | 有料記事に印を付ける、または取り除く | `action`: `mark` / `exclude` (既定 `mark`)<br>`unknown`: `keep` / `exclude` (既定 `keep`)<br>`prefix` (既定 `[有料] `) |
 | `dedupe` | item 間の重複除去 | `key`: `guid` / `link` / `normalized_title` (既定 `link`) |
 

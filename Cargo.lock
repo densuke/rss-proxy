@@ -97,7 +97,7 @@ dependencies = [
  "chrono",
  "derive_builder",
  "diligent-date-parser",
- "quick-xml",
+ "quick-xml 0.41.0",
 ]
 
 [[package]]
@@ -552,7 +552,7 @@ checksum = "369995dae0733f1fe5ab0e3f345f6503a5f384179df5d8da333702031a131cf9"
 dependencies = [
  "chrono",
  "mediatype",
- "quick-xml",
+ "quick-xml 0.41.0",
  "regex",
  "serde",
  "serde_json",
@@ -1258,6 +1258,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "quick-xml"
+version = "0.42.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41b1177fdf999d2321d3fb46ff47159d9c1fb9ad66a4879f8c50a0b504615e9b"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
 name = "quinn"
 version = "0.11.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1476,7 +1485,7 @@ checksum = "f505d3e5e7b06b4dc0245b13294f8ef9a1a0f70284708be1e11c5b7b7441034e"
 dependencies = [
  "atom_syndication",
  "derive_builder",
- "quick-xml",
+ "quick-xml 0.41.0",
 ]
 
 [[package]]
@@ -1491,6 +1500,7 @@ dependencies = [
  "clap",
  "feed-rs",
  "getrandom 0.4.3",
+ "quick-xml 0.42.0",
  "regex",
  "reqwest",
  "rpassword",

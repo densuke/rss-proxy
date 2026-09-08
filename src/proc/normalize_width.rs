@@ -9,7 +9,7 @@
 //! 日本語で区間を表す記号として使われるので明示的に除く。
 
 use crate::model::Feed;
-use crate::proc::{Processor, ProcessorError, Target};
+use crate::proc::{Documents, Processor, ProcessorError, Target};
 
 /// 全角 ASCII の開始位置と、半角との差。
 const FULL_WIDTH_START: char = '\u{FF01}';
@@ -33,7 +33,7 @@ impl Processor for NormalizeWidth {
         serde_json::to_string(self).expect("normalize_width のパラメータを直列化できない")
     }
 
-    fn apply(&self, mut feed: Feed) -> Result<Feed, ProcessorError> {
+    fn apply(&self, mut feed: Feed, _docs: &Documents) -> Result<Feed, ProcessorError> {
         for item in &mut feed.items {
             if self.target.includes_title() {
                 item.title = item.title.as_deref().map(to_half_width);

@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 
 use crate::model::{Feed, Item};
-use crate::proc::{Processor, ProcessorError};
+use crate::proc::{Documents, Processor, ProcessorError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -29,7 +29,7 @@ impl Processor for Dedupe {
         serde_json::to_string(self).expect("dedupe のパラメータを直列化できない")
     }
 
-    fn apply(&self, mut feed: Feed) -> Result<Feed, ProcessorError> {
+    fn apply(&self, mut feed: Feed, _docs: &Documents) -> Result<Feed, ProcessorError> {
         let mut seen = HashSet::new();
         // キーを持たない item は判定できないので、そのまま残す
         feed.items

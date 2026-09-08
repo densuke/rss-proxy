@@ -1,0 +1,264 @@
+<?xml version='1.0' encoding='utf-8'?>
+<feed xmlns="http://www.w3.org/2005/Atom" lang="ja">
+  <title>高頻度（随時）</title>
+  <subtitle>JMAXML publishing feed</subtitle>
+  <updated>2026-09-08T14:47:15+09:00</updated>
+  <id>https://www.data.jma.go.jp/developer/xml/feed/extra.xml#short_1788846435</id>
+  <link rel="related" href="https://www.jma.go.jp/" />
+  <link rel="self" href="https://www.data.jma.go.jp/developer/xml/feed/extra.xml" />
+  <link rel="hub" href="http://alert-hub.appspot.com/" />
+  <rights type="html">
+&lt;a href="https://www.jma.go.jp/jma/kishou/info/coment.html"&gt;利用規約&lt;/a&gt;,
+&lt;a href="https://www.jma.go.jp/jma/en/copyright.html"&gt;Terms of Use&lt;/a&gt;
+</rights>
+  <entry>
+    <title>気象特別警報・警報・注意報</title>
+    <id>https://www.data.jma.go.jp/developer/xml/data/20260908054620_0_VPWW53_230000.xml</id>
+    <updated>2026-09-08T05:46:18Z</updated>
+    <author>
+      <name>名古屋地方気象台</name>
+    </author>
+    <link type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/20260908054620_0_VPWW53_230000.xml" />
+    <content type="text">【愛知県気象警報・注意報】西部では、低い土地の浸水に警戒してください。</content>
+  </entry>
+  <entry>
+    <title>気象特別警報・警報・注意報</title>
+    <id>https://www.data.jma.go.jp/developer/xml/data/20260908054324_0_VPWW53_230000.xml</id>
+    <updated>2026-09-08T05:43:22Z</updated>
+    <author>
+      <name>名古屋地方気象台</name>
+    </author>
+    <link type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/20260908054324_0_VPWW53_230000.xml" />
+    <content type="text">【愛知県気象警報・注意報】西部では、低い土地の浸水に警戒してください。</content>
+  </entry>
+  <entry>
+    <title>気象特別警報・警報・注意報</title>
+    <id>https://www.data.jma.go.jp/developer/xml/data/20260908050714_0_VPWW53_230000.xml</id>
+    <updated>2026-09-08T05:07:12Z</updated>
+    <author>
+      <name>名古屋地方気象台</name>
+    </author>
+    <link type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/20260908050714_0_VPWW53_230000.xml" />
+    <content type="text">【愛知県気象警報・注意報】西部では、土砂災害や低い土地の浸水に注意してください。愛知県では、高波や竜巻などの激しい突風、落雷に注意してください。</content>
+  </entry>
+  <entry>
+    <title>気象特別警報・警報・注意報</title>
+    <id>https://www.data.jma.go.jp/developer/xml/data/20260908050105_0_VPWW53_230000.xml</id>
+    <updated>2026-09-08T05:01:04Z</updated>
+    <author>
+      <name>名古屋地方気象台</name>
+    </author>
+    <link type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/20260908050105_0_VPWW53_230000.xml" />
+    <content type="text">【愛知県気象警報・注意報】西部では、土砂災害や低い土地の浸水に注意してください。愛知県では、高波や竜巻などの激しい突風、落雷に注意してください。</content>
+  </entry>
+  <entry>
+    <title>気象特別警報・警報・注意報</title>
+    <id>https://www.data.jma.go.jp/developer/xml/data/20260908044617_0_VPWW53_230000.xml</id>
+    <updated>2026-09-08T04:46:15Z</updated>
+    <author>
+      <name>名古屋地方気象台</name>
+    </author>
+    <link type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/20260908044617_0_VPWW53_230000.xml" />
+    <content type="text">【愛知県気象警報・注意報】西部では、低い土地の浸水に注意してください。愛知県では、高波や竜巻などの激しい突風、落雷に注意してください。</content>
+  </entry>
+  <entry>
+    <title>気象特別警報・警報・注意報</title>
+    <id>https://www.data.jma.go.jp/developer/xml/data/20260908041607_0_VPWW53_230000.xml</id>
+    <updated>2026-09-08T04:16:06Z</updated>
+    <author>
+      <name>名古屋地方気象台</name>
+    </author>
+    <link type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/20260908041607_0_VPWW53_230000.xml" />
+    <content type="text">【愛知県気象警報・注意報】西部では、低い土地の浸水に注意してください。愛知県では、高波や竜巻などの激しい突風、落雷に注意してください。</content>
+  </entry>
+  <entry>
+    <title>気象特別警報・警報・注意報</title>
+    <id>https://www.data.jma.go.jp/developer/xml/data/20260908031713_0_VPWW53_280000.xml</id>
+    <updated>2026-09-08T03:17:11Z</updated>
+    <author>
+      <name>神戸地方気象台</name>
+    </author>
+    <link type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/20260908031713_0_VPWW53_280000.xml" />
+    <content type="text">【兵庫県気象警報・注意報】南部では、低い土地の浸水に警戒してください。</content>
+  </entry>
+  <entry>
+    <title>気象警報・注意報（Ｈ２７）</title>
+    <id>https://www.data.jma.go.jp/developer/xml/data/20260908031713_0_VPWW54_280000.xml</id>
+    <updated>2026-09-08T03:17:11Z</updated>
+    <author>
+      <name>神戸地方気象台</name>
+    </author>
+    <link type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/20260908031713_0_VPWW54_280000.xml" />
+    <content type="text">【兵庫県気象警報・注意報】南部では、低い土地の浸水に警戒してください。</content>
+  </entry>
+  <entry>
+    <title>気象警報・注意報（Ｈ２７）</title>
+    <id>https://www.data.jma.go.jp/developer/xml/data/20260908031320_0_VPWW54_280000.xml</id>
+    <updated>2026-09-08T03:13:18Z</updated>
+    <author>
+      <name>神戸地方気象台</name>
+    </author>
+    <link type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/20260908031320_0_VPWW54_280000.xml" />
+    <content type="text">【兵庫県気象警報・注意報】南部では、低い土地の浸水に警戒してください。</content>
+  </entry>
+  <entry>
+    <title>気象特別警報・警報・注意報</title>
+    <id>https://www.data.jma.go.jp/developer/xml/data/20260908031320_0_VPWW53_280000.xml</id>
+    <updated>2026-09-08T03:13:18Z</updated>
+    <author>
+      <name>神戸地方気象台</name>
+    </author>
+    <link type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/20260908031320_0_VPWW53_280000.xml" />
+    <content type="text">【兵庫県気象警報・注意報】南部では、低い土地の浸水に警戒してください。</content>
+  </entry>
+  <entry>
+    <title>気象特別警報・警報・注意報</title>
+    <id>https://www.data.jma.go.jp/developer/xml/data/20260908015822_0_VPWW53_280000.xml</id>
+    <updated>2026-09-08T01:58:21Z</updated>
+    <author>
+      <name>神戸地方気象台</name>
+    </author>
+    <link type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/20260908015822_0_VPWW53_280000.xml" />
+    <content type="text">【兵庫県気象警報・注意報】南部では、土砂災害や低い土地の浸水、高波に注意してください。兵庫県では、竜巻などの激しい突風や落雷に注意してください。</content>
+  </entry>
+  <entry>
+    <title>気象警報・注意報（Ｈ２７）</title>
+    <id>https://www.data.jma.go.jp/developer/xml/data/20260908015822_0_VPWW54_280000.xml</id>
+    <updated>2026-09-08T01:58:21Z</updated>
+    <author>
+      <name>神戸地方気象台</name>
+    </author>
+    <link type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/20260908015822_0_VPWW54_280000.xml" />
+    <content type="text">【兵庫県気象警報・注意報】南部では、土砂災害や低い土地の浸水、高波に注意してください。兵庫県では、竜巻などの激しい突風や落雷に注意してください。</content>
+  </entry>
+  <entry>
+    <title>気象特別警報・警報・注意報</title>
+    <id>https://www.data.jma.go.jp/developer/xml/data/20260908015810_0_VPWW53_120000.xml</id>
+    <updated>2026-09-08T01:58:09Z</updated>
+    <author>
+      <name>銚子地方気象台</name>
+    </author>
+    <link type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/20260908015810_0_VPWW53_120000.xml" />
+    <content type="text">【千葉県気象警報・注意報】千葉県では、土砂災害や竜巻などの激しい突風、落雷に注意してください。北東部、南部では、高波に注意してください。</content>
+  </entry>
+  <entry>
+    <title>気象特別警報・警報・注意報</title>
+    <id>https://www.data.jma.go.jp/developer/xml/data/20260908015807_0_VPWW53_230000.xml</id>
+    <updated>2026-09-08T01:58:06Z</updated>
+    <author>
+      <name>名古屋地方気象台</name>
+    </author>
+    <link type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/20260908015807_0_VPWW53_230000.xml" />
+    <content type="text">【愛知県気象警報・注意報】愛知県では、高波や竜巻などの激しい突風、落雷に注意してください。</content>
+  </entry>
+  <entry>
+    <title>気象特別警報・警報・注意報</title>
+    <id>https://www.data.jma.go.jp/developer/xml/data/20260908010147_0_VPWW53_280000.xml</id>
+    <updated>2026-09-08T01:01:45Z</updated>
+    <author>
+      <name>神戸地方気象台</name>
+    </author>
+    <link type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/20260908010147_0_VPWW53_280000.xml" />
+    <content type="text">【兵庫県気象警報・注意報】南部では、土砂災害や低い土地の浸水、高波に注意してください。兵庫県では、竜巻などの激しい突風や落雷に注意してください。</content>
+  </entry>
+  <entry>
+    <title>気象警報・注意報（Ｈ２７）</title>
+    <id>https://www.data.jma.go.jp/developer/xml/data/20260908010146_0_VPWW54_280000.xml</id>
+    <updated>2026-09-08T01:01:45Z</updated>
+    <author>
+      <name>神戸地方気象台</name>
+    </author>
+    <link type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/20260908010146_0_VPWW54_280000.xml" />
+    <content type="text">【兵庫県気象警報・注意報】南部では、土砂災害や低い土地の浸水、高波に注意してください。兵庫県では、竜巻などの激しい突風や落雷に注意してください。</content>
+  </entry>
+  <entry>
+    <title>気象特別警報・警報・注意報</title>
+    <id>https://www.data.jma.go.jp/developer/xml/data/20260907222715_0_VPWW53_280000.xml</id>
+    <updated>2026-09-07T22:27:13Z</updated>
+    <author>
+      <name>神戸地方気象台</name>
+    </author>
+    <link type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/20260907222715_0_VPWW53_280000.xml" />
+    <content type="text">【兵庫県気象警報・注意報】南部では、土砂災害や低い土地の浸水、高波に注意してください。兵庫県では、竜巻などの激しい突風や落雷に注意してください。</content>
+  </entry>
+  <entry>
+    <title>気象警報・注意報（Ｈ２７）</title>
+    <id>https://www.data.jma.go.jp/developer/xml/data/20260907222715_0_VPWW54_280000.xml</id>
+    <updated>2026-09-07T22:27:13Z</updated>
+    <author>
+      <name>神戸地方気象台</name>
+    </author>
+    <link type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/20260907222715_0_VPWW54_280000.xml" />
+    <content type="text">【兵庫県気象警報・注意報】南部では、土砂災害や低い土地の浸水、高波に注意してください。兵庫県では、竜巻などの激しい突風や落雷に注意してください。</content>
+  </entry>
+  <entry>
+    <title>気象特別警報・警報・注意報</title>
+    <id>https://www.data.jma.go.jp/developer/xml/data/20260907220258_0_VPWW53_120000.xml</id>
+    <updated>2026-09-07T22:02:56Z</updated>
+    <author>
+      <name>銚子地方気象台</name>
+    </author>
+    <link type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/20260907220258_0_VPWW53_120000.xml" />
+    <content type="text">【千葉県気象警報・注意報】千葉県では、土砂災害や竜巻などの激しい突風、落雷に注意してください。北東部、南部では、高波に注意してください。</content>
+  </entry>
+  <entry>
+    <title>気象警報・注意報（Ｈ２７）</title>
+    <id>https://www.data.jma.go.jp/developer/xml/data/20260907214008_0_VPWW54_280000.xml</id>
+    <updated>2026-09-07T21:40:07Z</updated>
+    <author>
+      <name>神戸地方気象台</name>
+    </author>
+    <link type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/20260907214008_0_VPWW54_280000.xml" />
+    <content type="text">【兵庫県気象警報・注意報】南部では、高波に注意してください。兵庫県では、竜巻などの激しい突風や落雷に注意してください。</content>
+  </entry>
+  <entry>
+    <title>気象特別警報・警報・注意報</title>
+    <id>https://www.data.jma.go.jp/developer/xml/data/20260907214008_0_VPWW53_280000.xml</id>
+    <updated>2026-09-07T21:40:07Z</updated>
+    <author>
+      <name>神戸地方気象台</name>
+    </author>
+    <link type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/20260907214008_0_VPWW53_280000.xml" />
+    <content type="text">【兵庫県気象警報・注意報】南部では、高波に注意してください。兵庫県では、竜巻などの激しい突風や落雷に注意してください。</content>
+  </entry>
+  <entry>
+    <title>気象警報・注意報（Ｈ２７）</title>
+    <id>https://www.data.jma.go.jp/developer/xml/data/20260907195833_0_VPWW54_280000.xml</id>
+    <updated>2026-09-07T19:58:32Z</updated>
+    <author>
+      <name>神戸地方気象台</name>
+    </author>
+    <link type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/20260907195833_0_VPWW54_280000.xml" />
+    <content type="text">【兵庫県気象警報・注意報】南部では、高波に注意してください。兵庫県では、落雷に注意してください。</content>
+  </entry>
+  <entry>
+    <title>気象特別警報・警報・注意報</title>
+    <id>https://www.data.jma.go.jp/developer/xml/data/20260907195833_0_VPWW53_280000.xml</id>
+    <updated>2026-09-07T19:58:32Z</updated>
+    <author>
+      <name>神戸地方気象台</name>
+    </author>
+    <link type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/20260907195833_0_VPWW53_280000.xml" />
+    <content type="text">【兵庫県気象警報・注意報】南部では、高波に注意してください。兵庫県では、落雷に注意してください。</content>
+  </entry>
+  <entry>
+    <title>気象特別警報・警報・注意報</title>
+    <id>https://www.data.jma.go.jp/developer/xml/data/20260907195821_0_VPWW53_120000.xml</id>
+    <updated>2026-09-07T19:58:19Z</updated>
+    <author>
+      <name>銚子地方気象台</name>
+    </author>
+    <link type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/20260907195821_0_VPWW53_120000.xml" />
+    <content type="text">【千葉県気象警報・注意報】〈危険警報（土砂災害）〉南部では、土砂災害に厳重に警戒してください。</content>
+  </entry>
+  <entry>
+    <title>気象特別警報・警報・注意報</title>
+    <id>https://www.data.jma.go.jp/developer/xml/data/20260907195817_0_VPWW53_230000.xml</id>
+    <updated>2026-09-07T19:58:16Z</updated>
+    <author>
+      <name>名古屋地方気象台</name>
+    </author>
+    <link type="application/xml" href="https://www.data.jma.go.jp/developer/xml/data/20260907195817_0_VPWW53_230000.xml" />
+    <content type="text">【愛知県気象警報・注意報】愛知県では、高波や竜巻などの激しい突風、落雷に注意してください。</content>
+  </entry>
+  </feed>
