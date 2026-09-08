@@ -12,6 +12,7 @@ fn item(title: &str, hours_ago: Option<i64>) -> Item {
         published: hours_ago.map(|h| Utc::now() - Duration::hours(h)),
         authors: vec![],
         categories: vec![],
+        paywalled: None,
     }
 }
 

@@ -36,6 +36,27 @@ RSS リーダーには `http://127.0.0.1:8080/feeds/gnews` を登録する。管
 
 DB のパスは `--db` で指定する (既定 `rss-proxy.db`)。
 
+## 有料記事の判定
+
+対応している媒体は読売新聞と日本経済新聞。記事ページを取得して、その記事自身を指す構造化データで判定する。
+
+```
+paywall {"action":"exclude"}          # 有料記事を落とす
+paywall {"action":"mark"}             # [有料] を付けて残す
+```
+
+判定できなかった記事は `unknown` として残す。目印を出さない媒体があるため、無料とは決めつけない。落としたい場合は `{"unknown":"exclude"}`。
+
+費用を抑えるため、ルールのある媒体の記事だけを取りに行き、結果は 30 日間キャッシュする。1 回の巡回で取りに行くのは 20 件まで。
+
+対応媒体を増やすには `src/paywall.rs` にルールを 1 つ足す。
+
+**Google ニュース経由のフィードでは使えない。** `<link>` がリダイレクタで、元記事の URL を得る費用に見合わない。ただし title の末尾に媒体名が入るので、媒体単位で落とすなら `exclude` で足りる。
+
+```
+exclude {"words":["- 日本経済新聞"],"target":"title"}
+```
+
 ## 識別子と表示名
 
 配信 URL に使う識別子 (`slug`) と画面の表示名 (`label`) は別物。
@@ -77,6 +98,7 @@ $ rss-proxy global show
 | `exclude` | 指定した語を含む item を取り除く | `words`: 語の配列<br>`target`: `title` / `description` / `both` (既定 `title`) |
 | `max_age` | 指定した時間より古い item を落とす | `hours` (既定 24) |
 | `normalize_width` | 全角の英数字と記号を半角に直す。カギ括弧・句読点・なかてん・波ダッシュはそのまま | `target` (既定 `title`) |
+| `paywall` | 有料記事に印を付ける、または取り除く | `action`: `mark` / `exclude` (既定 `mark`)<br>`unknown`: `keep` / `exclude` (既定 `keep`)<br>`prefix` (既定 `[有料] `) |
 | `dedupe` | item 間の重複除去 | `key`: `guid` / `link` / `normalized_title` (既定 `link`) |
 
 ```console

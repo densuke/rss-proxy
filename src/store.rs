@@ -72,6 +72,13 @@ CREATE TABLE IF NOT EXISTS global_processors (
     params   TEXT NOT NULL
 );
 
+-- 有料記事の判定結果。1 記事につき 1 回だけ取りに行くため
+CREATE TABLE IF NOT EXISTS paywall_cache (
+    url        TEXT PRIMARY KEY,
+    access     TEXT NOT NULL,   -- paid / free / unknown
+    checked_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS outputs (
     feed_id      INTEGER PRIMARY KEY REFERENCES feeds(id) ON DELETE CASCADE,
     xml          TEXT NOT NULL,
@@ -274,6 +281,34 @@ impl Store {
                     .into(),
             ),
         ])
+    }
+
+    /// 判定済みなら返す。無ければ取りに行く必要がある。
+    pub fn paywall_cached(&self, url: &str) -> Result<Option<crate::paywall::Access>> {
+        let access: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT access FROM paywall_cache WHERE url = ?1",
+                [url],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(access.as_deref().map(crate::paywall::Access::parse))
+    }
+
+    pub fn remember_paywall(&self, url: &str, access: crate::paywall::Access) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO paywall_cache (url, access, checked_at) VALUES (?1, ?2, ?3) \
+             ON CONFLICT(url) DO UPDATE SET access = ?2, checked_at = ?3",
+            params![url, access.as_str(), Utc::now().timestamp()],
+        )?;
+        Ok(())
+    }
+
+    /// 配信から消えた記事の判定結果は使われない。古いものを捨てる。
+    pub fn prune_paywall_cache(&self, before: i64) -> Result<usize> {
+        self.conn
+            .execute("DELETE FROM paywall_cache WHERE checked_at < ?1", [before])
     }
 
     /// 全フィードに適用する連鎖。フィード固有の連鎖より先に走る。

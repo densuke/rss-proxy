@@ -13,6 +13,7 @@ fn item(title: &str, description: Option<&str>) -> Item {
         published: None,
         authors: vec![],
         categories: vec![],
+        paywalled: None,
     }
 }
 

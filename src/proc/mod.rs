@@ -3,6 +3,7 @@ pub mod exclude;
 pub mod google_news;
 pub mod max_age;
 pub mod normalize_width;
+pub mod paywall;
 
 use crate::model::Feed;
 use crate::proc::dedupe::Dedupe;
@@ -10,6 +11,7 @@ use crate::proc::exclude::Exclude;
 use crate::proc::google_news::GoogleNewsCluster;
 use crate::proc::max_age::MaxAge;
 use crate::proc::normalize_width::NormalizeWidth;
+use crate::proc::paywall::Paywall;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProcessorError {
@@ -103,6 +105,27 @@ const NORMALIZE_WIDTH_PARAMS: &[ParamInfo] = &[ParamInfo {
     values: &["title", "description", "both"],
 }];
 
+const PAYWALL_PARAMS: &[ParamInfo] = &[
+    ParamInfo {
+        name: "action",
+        description: "有料と判定した item をどうするか",
+        default: "mark",
+        values: &["mark", "exclude"],
+    },
+    ParamInfo {
+        name: "unknown",
+        description: "判定できなかった item の扱い。目印を出さない媒体があるため、無料とは決めつけない",
+        default: "keep",
+        values: &["keep", "exclude"],
+    },
+    ParamInfo {
+        name: "prefix",
+        description: "action が mark のときに title の先頭へ付ける文字列",
+        default: "[有料] ",
+        values: &[],
+    },
+];
+
 const CATALOG: &[ProcessorInfo] = &[
     ProcessorInfo {
         kind: "google_news_cluster",
@@ -123,6 +146,11 @@ const CATALOG: &[ProcessorInfo] = &[
         kind: "normalize_width",
         summary: "全角の英数字と記号を半角に直す。カギ括弧・句読点・なかてん・波ダッシュはそのまま",
         params: NORMALIZE_WIDTH_PARAMS,
+    },
+    ProcessorInfo {
+        kind: "paywall",
+        summary: "有料記事に印を付ける、または取り除く。判定できる媒体は読売新聞と日本経済新聞",
+        params: PAYWALL_PARAMS,
     },
     ProcessorInfo {
         kind: "dedupe",
@@ -161,6 +189,9 @@ pub fn build(kind: &str, params: &str) -> Result<Box<dyn Processor>, ProcessorEr
         )),
         "normalize_width" => Ok(Box::new(
             serde_json::from_str::<NormalizeWidth>(json).map_err(parse)?,
+        )),
+        "paywall" => Ok(Box::new(
+            serde_json::from_str::<Paywall>(json).map_err(parse)?,
         )),
         other => Err(ProcessorError::UnknownKind(other.to_string())),
     }

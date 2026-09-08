@@ -215,6 +215,50 @@ exclude {"words":["【PR】","[PR]","PR:","【広告】","[広告]","<PR>","(PR)
 
 既定が不要なら画面か CLI から空にできる。グローバル連鎖を変えると全フィードが作り直しの対象になる。既定を入れる移行でも同じ扱いにする。検証子が残っていると 304 で処理がスキップされ、入れたばかりの連鎖が反映されないため。
 
+### 5.1.2 有料記事の判定
+
+判定には記事ページの取得が必要で、`Feed -> Feed` の純粋関数では扱えない。そこで**判定と処理を分ける**。
+
+```
+[取得] → 有料判定 (I/O・キャッシュ) → グローバル連鎖 → フィード固有 → [保存]
+              ↑ scheduler の仕事              ↑ Processor は純粋なまま
+```
+
+判定結果は `Item::paywalled` に入る (`Some(true)` 有料 / `Some(false)` 無料 / `None` 判定不能)。`paywall` Processor はこの値を見るだけで、通信しない。
+
+**判定ルールは媒体ごと。** 共通規格の schema.org `isAccessibleForFree` を出す媒体もあれば、独自の値しか持たない媒体もある。`src/paywall.rs` に 1 か所へまとめ、媒体が増えたら足す。
+
+| 媒体 | 目印 |
+|------|------|
+| 読売新聞 | `isAccessibleForFree` (`false` が有料) |
+| 日本経済新聞 | `paywallProps.isLockedArticle` (`true` が有料) |
+
+`isPaidUserOnlyArticle` は使わない。日経では「完全会員限定」だけを指し、途中まで読める従量型では `false` になる。
+
+**文字列の一致では判定できない。** 記事ページには関連記事の一覧が載るため、「有料」を示す語や class 名は無料記事のページにも現れる。実測で読売の無料記事にも `data-icon-type="key-locked"` が含まれていた。判定にはその記事自身を指す構造化データだけを使う。
+
+#### 費用を抑える仕組み
+
+1 件につき記事ページを 1 回取りに行くので、次の順で絞る。
+
+1. **ルールのある媒体の item だけ**を対象にする。Publickey や NHK には 1 回も通信しない
+2. **判定済みならキャッシュを使う** (`paywall_cache`)。1 記事につき 1 回だけ
+3. **1 回の巡回で取りに行く数に上限を置く** (20 件)。新着が大量にあっても媒体を叩き続けない。残りは次の巡回で判定する
+
+キャッシュは 30 日で捨てる。配信から消えた記事の判定結果は使われない。
+
+判定に失敗しても巡回は続ける。有料かどうかは配信の可否ではない。
+
+#### Google ニュース経由のフィードでは使えない
+
+Google ニュースの `<link>` はリダイレクタで、元記事の URL を得るには記事ごとに 590KB のページ取得と非公開 RPC が必要になる (調査済み)。そこまでして判定する費用に見合わない。
+
+ただし title の末尾に媒体名が入る (`… - 日本経済新聞`) ため、**媒体単位で落とすなら既存の `exclude` で足りる**。
+
+```
+exclude {"words":["- 日本経済新聞"],"target":"title"}
+```
+
 ### 5.2 v1 で実装する Processor
 
 実測で問題を確認できたものだけを実装する。trait とレジストリさえあれば追加は 1 ファイル 30 行程度なので、必要が生じてから足す。見送った Processor の仕様は 14.2 に残す。
@@ -349,6 +393,12 @@ CREATE TABLE processors (
     params   TEXT NOT NULL,         -- JSON
     enabled  INTEGER NOT NULL DEFAULT 1,
     UNIQUE(feed_id, position)
+);
+
+CREATE TABLE paywall_cache (
+    url        TEXT PRIMARY KEY,
+    access     TEXT NOT NULL,   -- paid / free / unknown
+    checked_at INTEGER NOT NULL
 );
 
 CREATE TABLE global_processors (
@@ -500,6 +550,7 @@ src/
 ├── fetch.rs           # HTTP 取得、条件付き GET
 ├── parse.rs           # feed-rs → model 変換
 ├── render.rs          # model → RSS 2.0 XML
+├── paywall.rs         # 有料記事の判定ルール (媒体ごと)
 ├── slug.rs            # 配信 URL に使う識別子の生成と検証
 ├── store.rs           # SQLite (スキーマ、マイグレーション、クエリ)
 ├── proc/

@@ -21,4 +21,7 @@ pub struct Item {
     pub published: Option<DateTime<Utc>>,
     pub authors: Vec<String>,
     pub categories: Vec<String>,
+    /// 有料記事か。判定できなかった場合は None。
+    /// 取得段階で埋める (5.6)。Processor 側は判定済みの値を使うだけ
+    pub paywalled: Option<bool>,
 }

@@ -9,11 +9,18 @@ use chrono::Utc;
 use reqwest::Client;
 
 use crate::fetch::{self, Fetched};
-use crate::store::{Feed, Store};
+use crate::model::Feed;
+use crate::paywall::{self, Access};
+use crate::store::{Feed as StoredFeed, Store};
 use crate::{parse, proc, render};
 
 const TICK: Duration = Duration::from_secs(60);
 const MAX_BACKOFF_SECS: i64 = 6 * 3600;
+/// 1 回の巡回で有料判定のために取りに行く記事数の上限。
+/// 新着が大量にあっても、媒体のサイトを叩き続けないようにする。
+const MAX_PAYWALL_LOOKUPS: usize = 20;
+/// 有料判定の保持期間。配信から消えた記事の結果は使われない。
+const PAYWALL_CACHE_DAYS: i64 = 30;
 
 #[derive(Debug, thiserror::Error)]
 pub enum RefreshError {
@@ -37,7 +44,11 @@ pub fn backoff_secs(fail_count: i64, interval_secs: i64) -> i64 {
 }
 
 /// 1 フィードを取得して処理し、結果を保存する。
-pub async fn refresh(store: &Store, client: &Client, feed: &Feed) -> Result<(), RefreshError> {
+pub async fn refresh(
+    store: &Store,
+    client: &Client,
+    feed: &StoredFeed,
+) -> Result<(), RefreshError> {
     match run(store, client, feed).await {
         Ok(()) => Ok(()),
         Err(e) => {
@@ -49,7 +60,7 @@ pub async fn refresh(store: &Store, client: &Client, feed: &Feed) -> Result<(), 
     }
 }
 
-async fn run(store: &Store, client: &Client, feed: &Feed) -> Result<(), RefreshError> {
+async fn run(store: &Store, client: &Client, feed: &StoredFeed) -> Result<(), RefreshError> {
     let fetched = fetch::fetch(
         client,
         &feed.url,
@@ -76,7 +87,8 @@ async fn run(store: &Store, client: &Client, feed: &Feed) -> Result<(), RefreshE
         return Ok(());
     };
 
-    let mut parsed = parse::parse(&bytes)?;
+    let parsed = parse::parse(&bytes)?;
+    let mut parsed = classify_items(store, client, parsed, MAX_PAYWALL_LOOKUPS).await;
     // 上流のタイトルは記録として残しつつ、表示名があれば配信する title を差し替える。
     // 検索フィードの title は検索クエリそのままで、購読すると読みづらいため
     let title = parsed.title.clone();
@@ -105,6 +117,67 @@ async fn run(store: &Store, client: &Client, feed: &Feed) -> Result<(), RefreshE
     }
     store.mark_success(feed.id, etag.as_deref(), last_modified.as_deref(), next)?;
     Ok(())
+}
+
+/// 各 item が有料記事かどうかを判定して埋める。
+///
+/// 判定は記事ページを 1 件ずつ取りに行くので、次の順で費用を抑える。
+///
+/// 1. ルールのある媒体の item だけを対象にする (それ以外は 0 リクエスト)
+/// 2. 判定済みならキャッシュを使う
+/// 3. 1 回の巡回で取りに行く数に上限を置く
+///
+/// 判定に失敗しても巡回自体は続ける。有料かどうかは配信の可否ではない。
+pub async fn classify_items(
+    store: &Store,
+    client: &Client,
+    mut feed: Feed,
+    max_lookups: usize,
+) -> Feed {
+    let mut lookups = 0;
+    for item in &mut feed.items {
+        let Some(link) = item.link.clone() else {
+            continue;
+        };
+        let Some(rule) = paywall::rule_for(&link) else {
+            continue;
+        };
+
+        let access = match store.paywall_cached(&link) {
+            Ok(Some(cached)) => cached,
+            Ok(None) if lookups < max_lookups => {
+                lookups += 1;
+                let access = look_up(client, rule, &link).await;
+                if let Err(e) = store.remember_paywall(&link, access) {
+                    eprintln!("paywall cache {link}: {e}");
+                }
+                access
+            }
+            // 上限に達した。次の巡回で判定する
+            Ok(None) => continue,
+            Err(e) => {
+                eprintln!("paywall cache {link}: {e}");
+                continue;
+            }
+        };
+        item.paywalled = access.as_flag();
+    }
+    lookups.gt(&0).then(|| {
+        let before = Utc::now().timestamp() - PAYWALL_CACHE_DAYS * 24 * 3600;
+        store.prune_paywall_cache(before).ok()
+    });
+    feed
+}
+
+async fn look_up(client: &Client, rule: &paywall::Rule, url: &str) -> Access {
+    match fetch::fetch(client, url, None, None).await {
+        Ok(Fetched::Body { bytes, .. }) => paywall::detect(rule, &String::from_utf8_lossy(&bytes)),
+        Ok(Fetched::NotModified) => Access::Unknown,
+        Err(e) => {
+            eprintln!("paywall {url}: {e}");
+            Access::Unknown
+        }
+    }
 }
 
 /// 60 秒ごとに巡回対象を拾って処理し続ける。

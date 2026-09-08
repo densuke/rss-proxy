@@ -11,6 +11,7 @@ fn item(id: Option<&str>, title: Option<&str>, link: Option<&str>) -> Item {
         published: None,
         authors: vec![],
         categories: vec![],
+        paywalled: None,
     }
 }
 

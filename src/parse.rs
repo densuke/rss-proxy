@@ -32,6 +32,8 @@ fn to_item(entry: feed_rs::model::Entry) -> Item {
         published: entry.published.or(entry.updated),
         authors: entry.authors.into_iter().map(|p| p.name).collect(),
         categories: entry.categories.into_iter().map(|c| c.term).collect(),
+        // 判定は取得段階で行う
+        paywalled: None,
     }
 }
 

@@ -4,6 +4,7 @@ pub mod fetch;
 pub mod html;
 pub mod model;
 pub mod parse;
+pub mod paywall;
 pub mod proc;
 pub mod render;
 pub mod scheduler;
