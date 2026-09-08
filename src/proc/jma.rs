@@ -29,6 +29,11 @@ const DOCUMENT_TYPE: &str = "VPWW53";
 const MUNICIPALITY_BLOCK: &str = "気象警報・注意報（市町村等）";
 /// 今回新しく発表された種別の Status。継続中のものは「継続」になる。
 const STATUS_NEW: &str = "発表";
+/// 人が読める警報ページ。フィードの link は XML を指しており、リーダーから
+/// 開いても読めないため差し替える。
+const WARNING_PAGE: &str = "https://www.jma.go.jp/bosai/warning/#area_type=offices&area_code=";
+/// 地域の区切り。Slack の /feed は改行を潰すため、1 行になっても切れ目が分かるようにする。
+const AREA_SEPARATOR: &str = "／";
 
 fn default_new_prefix() -> String {
     "【新】".into()
@@ -143,12 +148,23 @@ impl JmaWarning {
         if hits.is_empty() {
             return false;
         }
-        item.description = Some(
-            hits.iter()
-                .map(|(area, kinds)| format!("{area}: {}", kinds.join(", ")))
-                .collect::<Vec<_>>()
-                .join("\n"),
-        );
+
+        let areas = hits
+            .iter()
+            .map(|(area, kinds)| format!("{area}: {}", kinds.join(", ")))
+            .collect::<Vec<_>>()
+            .join(&format!("\n{AREA_SEPARATOR}"));
+
+        // いつ時点の情報かが分からないと、警戒すべきかを判断できない
+        item.description = Some(match report_time(xml) {
+            Some(at) => format!("{at} 時点\n{areas}"),
+            None => areas,
+        });
+
+        // フィードの link は XML を指している。人が読めるページに差し替える
+        if let Some(code) = item.link.as_deref().and_then(office_code_of) {
+            item.link = Some(format!("{WARNING_PAGE}{code}"));
+        }
         if let Some(head) = headline_of(xml) {
             item.title = Some(head);
         }
@@ -189,6 +205,39 @@ fn office_code_of(url: &str) -> Option<&str> {
     let rest = name.strip_suffix(".xml")?;
     let (head, code) = rest.rsplit_once('_')?;
     head.ends_with(DOCUMENT_TYPE).then_some(code)
+}
+
+/// 発表時刻。XML の Head/ReportDateTime を日本時間で表示する。
+fn report_time(xml: &str) -> Option<String> {
+    let raw = first_text_of(xml, "ReportDateTime")?;
+    let at = chrono::DateTime::parse_from_rfc3339(&raw).ok()?;
+    let jst = chrono::FixedOffset::east_opt(9 * 3600)?;
+    Some(at.with_timezone(&jst).format("%Y-%m-%d %H:%M").to_string())
+}
+
+/// 指定した要素の最初のテキスト。
+fn first_text_of(xml: &str, tag: &str) -> Option<String> {
+    let mut reader = quick_xml::Reader::from_str(xml);
+    let mut inside = false;
+    let mut text = String::new();
+    loop {
+        match reader.read_event() {
+            Ok(quick_xml::events::Event::Start(e)) => {
+                inside = e.local_name().as_ref() == tag;
+                text.clear();
+            }
+            Ok(quick_xml::events::Event::Text(t)) if inside => text.push_str(t.as_ref()),
+            Ok(quick_xml::events::Event::End(e)) => {
+                if e.local_name().as_ref() == tag && !text.trim().is_empty() {
+                    return Some(text.trim().to_string());
+                }
+                inside = false;
+                text.clear();
+            }
+            Ok(quick_xml::events::Event::Eof) | Err(_) => return None,
+            _ => {}
+        }
+    }
 }
 
 /// 見出しに使う Title を取り出す。

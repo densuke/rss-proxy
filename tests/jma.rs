@@ -198,3 +198,55 @@ fn marking_can_be_turned_off() {
     assert!(body.contains("大雨注意報"));
     assert!(!body.contains("【新】"), "{body}");
 }
+
+/// 配信されるリンクは XML を指していて、リーダーから開いても読めない。
+/// 気象庁の警報ページ (人が読める) に差し替える。
+#[test]
+fn the_link_points_at_a_human_readable_page() {
+    let mut docs = Documents::empty();
+    docs.insert(HYOGO_URL.into(), HYOGO.into());
+
+    let out = proc(r#"{"areas":["神戸市"]}"#)
+        .apply(feed(), &docs)
+        .unwrap();
+    let link = out.items[0].link.as_deref().unwrap();
+
+    assert_eq!(
+        link,
+        "https://www.jma.go.jp/bosai/warning/#area_type=offices&area_code=280000"
+    );
+}
+
+/// いつ時点の情報かが分からないと、警戒すべきかを判断できない。
+#[test]
+fn the_publication_time_is_shown_in_the_body() {
+    let mut docs = Documents::empty();
+    docs.insert(HYOGO_URL.into(), HYOGO.into());
+
+    let out = proc(r#"{"areas":["神戸市"]}"#)
+        .apply(feed(), &docs)
+        .unwrap();
+    let body = out.items[0].description.as_deref().unwrap();
+
+    // XML の発表時刻 (2026-09-08T12:17:00+09:00) を日本時間で示す
+    assert!(body.contains("2026-09-08 12:17"), "発表時刻がない: {body}");
+}
+
+/// Slack の /feed は改行を潰す。区切りが分かる形にしておく。
+#[test]
+fn areas_are_separated_so_they_survive_a_collapsed_line() {
+    let mut docs = Documents::empty();
+    docs.insert(HYOGO_URL.into(), HYOGO.into());
+
+    let out = proc(r#"{"areas":["神戸市"]}"#)
+        .apply(feed(), &docs)
+        .unwrap();
+    let body = out.items[0].description.as_deref().unwrap();
+
+    // 改行が消えても地域の切れ目が分かる
+    let one_line = body.replace('\n', " ");
+    assert!(
+        one_line.contains("／神戸市灘区:") || one_line.contains("／ 神戸市灘区:"),
+        "区切りが無いと 1 行になったとき読めない: {one_line}"
+    );
+}
