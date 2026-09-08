@@ -10,6 +10,9 @@
 //!    市区町村名から必要なコードを引き、一致する entry だけを対象にする。ここは通信しない
 //! 2. **予報区ごとに最新の 1 件だけ**を取る。古い発表は上書きされている
 //!
+//! 前回からの差分は自分で保存しない。XML の `Kind` が `Status` を持っており、
+//! 今回新しく出たもの (`発表`) と継続中のもの (`継続`) を気象庁が区別している。
+//!
 //! 文書型は `VPWW53` (気象特別警報・警報・注意報) のみを使う。`VPWW54` は旧形式の
 //! 重複で、`VPWW55`/`56`/`58`/`59` は同じ事象をレベル表記で分割したもの。
 //! いずれも追加の情報を持たない。
@@ -24,6 +27,12 @@ use crate::proc::{Documents, Processor, ProcessorError};
 const DOCUMENT_TYPE: &str = "VPWW53";
 /// 市区町村単位の警報・注意報が入るブロック。
 const MUNICIPALITY_BLOCK: &str = "気象警報・注意報（市町村等）";
+/// 今回新しく発表された種別の Status。継続中のものは「継続」になる。
+const STATUS_NEW: &str = "発表";
+
+fn default_new_prefix() -> String {
+    "【新】".into()
+}
 
 /// 市区町村名 → 府県予報区コード。気象庁の area.json から生成した表。
 static AREAS: LazyLock<Vec<(&'static str, &'static str)>> = LazyLock::new(|| {
@@ -34,13 +43,28 @@ static AREAS: LazyLock<Vec<(&'static str, &'static str)>> = LazyLock::new(|| {
         .collect()
 });
 
-#[derive(Debug, Default, serde::Deserialize, serde::Serialize)]
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct JmaWarning {
     /// 対象の市区町村名。前方一致するので「神戸市」で 9 区すべてを拾える
     pub areas: Vec<String>,
     /// 残す種別。部分一致。空なら全部。「警報」は「特別警報」も拾う
     pub kinds: Vec<String>,
+    /// 今回新しく発表された種別の前に付ける。空にすれば印を付けない
+    pub new_prefix: String,
+    /// 同じく後ろに付ける。読み手に合わせて変える (Slack の太字なら両方 `*`)
+    pub new_suffix: String,
+}
+
+impl Default for JmaWarning {
+    fn default() -> Self {
+        Self {
+            areas: Vec::new(),
+            kinds: Vec::new(),
+            new_prefix: default_new_prefix(),
+            new_suffix: String::new(),
+        }
+    }
 }
 
 impl Processor for JmaWarning {
@@ -139,12 +163,22 @@ impl JmaWarning {
                 let kinds: Vec<String> = kinds
                     .into_iter()
                     .filter(|k| {
-                        self.kinds.is_empty() || self.kinds.iter().any(|want| k.contains(want))
+                        self.kinds.is_empty() || self.kinds.iter().any(|want| k.name.contains(want))
                     })
+                    .map(|k| self.label(&k))
                     .collect();
                 (!kinds.is_empty()).then_some((area, kinds))
             })
             .collect()
+    }
+
+    /// 新しく発表された種別には印を付ける。継続中のものはそのまま。
+    fn label(&self, kind: &Kind) -> String {
+        if kind.status == STATUS_NEW {
+            format!("{}{}{}", self.new_prefix, kind.name, self.new_suffix)
+        } else {
+            kind.name.clone()
+        }
     }
 }
 
@@ -194,15 +228,24 @@ fn headline_of(xml: &str) -> Option<String> {
     titles.pop()
 }
 
+/// 種別と、その発表状況。
+pub struct Kind {
+    pub name: String,
+    /// 「発表」なら今回新しく出たもの、「継続」なら前回から続いているもの
+    pub status: String,
+}
+
 /// 市町村等ブロックから (地域名, 種別) を取り出す。
-fn parse_municipality_warnings(xml: &str) -> Vec<(String, Vec<String>)> {
+fn parse_municipality_warnings(xml: &str) -> Vec<(String, Vec<Kind>)> {
     let mut reader = quick_xml::Reader::from_str(xml);
-    let mut out: Vec<(String, Vec<String>)> = Vec::new();
+    let mut out: Vec<(String, Vec<Kind>)> = Vec::new();
 
     let mut in_block = false;
     let mut path: Vec<String> = Vec::new();
     let mut area: Option<String> = None;
-    let mut kinds: Vec<String> = Vec::new();
+    let mut kinds: Vec<Kind> = Vec::new();
+    let mut kind_name: Option<String> = None;
+    let mut kind_status = String::new();
     let mut text = String::new();
 
     loop {
@@ -219,6 +262,10 @@ fn parse_municipality_warnings(xml: &str) -> Vec<(String, Vec<String>)> {
                     area = None;
                     kinds.clear();
                 }
+                if in_block && name == "Kind" {
+                    kind_name = None;
+                    kind_status.clear();
+                }
                 path.push(name);
                 text.clear();
             }
@@ -226,13 +273,23 @@ fn parse_municipality_warnings(xml: &str) -> Vec<(String, Vec<String>)> {
             Ok(quick_xml::events::Event::End(e)) => {
                 let name = e.local_name().as_ref().to_string();
                 let value = text.trim().to_string();
-                if in_block && name == "Name" && !value.is_empty() {
-                    // 親が Area なら地域名、Kind なら種別
-                    match path.get(path.len().wrapping_sub(2)).map(String::as_str) {
-                        Some("Area") if area.is_none() => area = Some(value),
-                        Some("Kind") if value != "解除" => kinds.push(value),
+                let parent = path.get(path.len().wrapping_sub(2)).map(String::as_str);
+                if in_block && !value.is_empty() {
+                    match (name.as_str(), parent) {
+                        ("Name", Some("Area")) if area.is_none() => area = Some(value),
+                        ("Name", Some("Kind")) if value != "解除" => kind_name = Some(value),
+                        ("Status", Some("Kind")) => kind_status = value,
                         _ => {}
                     }
+                }
+                if in_block
+                    && name == "Kind"
+                    && let Some(n) = kind_name.take()
+                {
+                    kinds.push(Kind {
+                        name: n,
+                        status: std::mem::take(&mut kind_status),
+                    });
                 }
                 if in_block && name == "Item" {
                     if let (Some(a), false) = (area.take(), kinds.is_empty()) {

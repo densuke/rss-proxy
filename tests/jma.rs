@@ -114,3 +114,87 @@ fn items_without_their_document_are_dropped() {
         .unwrap();
     assert!(out.items.is_empty());
 }
+
+const NEW_ISSUE: &str = include_str!("fixtures/jma/new_issue_vpww53.xml");
+const GIFU_URL: &str =
+    "https://www.data.jma.go.jp/developer/xml/data/20260908195819_0_VPWW53_210000.xml";
+
+/// 気象庁の XML は Kind ごとに Status を持つ。前回からの差分を自分で保存しなくても、
+/// 「今回新しく出た」ことが分かる。
+fn gifu_docs() -> Documents {
+    let mut docs = Documents::empty();
+    docs.insert(GIFU_URL.into(), NEW_ISSUE.into());
+    docs
+}
+
+/// フィードに岐阜の entry が無いので、item を直接組み立てて確かめる
+fn gifu_feed() -> Feed {
+    Feed {
+        title: "t".into(),
+        link: None,
+        description: None,
+        updated: None,
+        items: vec![rss_proxy::model::Item {
+            id: None,
+            title: Some("気象警報・注意報".into()),
+            link: Some(GIFU_URL.into()),
+            description: None,
+            published: None,
+            authors: vec![],
+            categories: vec![],
+            paywalled: None,
+        }],
+    }
+}
+
+#[test]
+fn newly_issued_warnings_are_marked() {
+    let out = proc(r#"{"areas":["高山市"]}"#)
+        .apply(gifu_feed(), &gifu_docs())
+        .unwrap();
+
+    let body = out.items[0].description.as_deref().unwrap();
+    // 大雨注意報は Status=発表、雷注意報は Status=継続
+    assert!(
+        body.contains("【新】大雨注意報"),
+        "新規発表が目立たない: {body}"
+    );
+    assert!(body.contains("雷注意報"), "{body}");
+    assert!(
+        !body.contains("【新】雷注意報"),
+        "継続を新規と誤判定: {body}"
+    );
+}
+
+#[test]
+fn continuing_warnings_are_never_marked() {
+    let mut docs = Documents::empty();
+    docs.insert(HYOGO_URL.into(), HYOGO.into());
+
+    let out = proc(r#"{"areas":["神戸市"]}"#)
+        .apply(feed(), &docs)
+        .unwrap();
+    let body = out.items[0].description.as_deref().unwrap();
+    assert!(!body.contains("【新】"), "すべて継続のはず: {body}");
+}
+
+#[test]
+fn the_marker_can_be_changed_for_the_reader_in_use() {
+    // Slack の太字は * で囲む。読み手に合わせて設定で変えられる
+    let out = proc(r#"{"areas":["高山市"],"new_prefix":"*","new_suffix":"*"}"#)
+        .apply(gifu_feed(), &gifu_docs())
+        .unwrap();
+    let body = out.items[0].description.as_deref().unwrap();
+    assert!(body.contains("*大雨注意報*"), "{body}");
+    assert!(!body.contains("*雷注意報*"), "{body}");
+}
+
+#[test]
+fn marking_can_be_turned_off() {
+    let out = proc(r#"{"areas":["高山市"],"new_prefix":"","new_suffix":""}"#)
+        .apply(gifu_feed(), &gifu_docs())
+        .unwrap();
+    let body = out.items[0].description.as_deref().unwrap();
+    assert!(body.contains("大雨注意報"));
+    assert!(!body.contains("【新】"), "{body}");
+}

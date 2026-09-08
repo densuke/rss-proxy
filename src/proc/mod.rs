@@ -169,6 +169,18 @@ const JMA_PARAMS: &[ParamInfo] = &[
         default: "[]",
         values: &[],
     },
+    ParamInfo {
+        name: "new_prefix",
+        description: "今回新しく発表された種別の前に付ける。空にすれば印を付けない",
+        default: "【新】",
+        values: &[],
+    },
+    ParamInfo {
+        name: "new_suffix",
+        description: "同じく後ろに付ける。Slack の太字なら前後とも * にする",
+        default: "",
+        values: &[],
+    },
 ];
 
 const CATALOG: &[ProcessorInfo] = &[
@@ -194,7 +206,7 @@ const CATALOG: &[ProcessorInfo] = &[
     },
     ProcessorInfo {
         kind: "jma_warning",
-        summary: "気象庁専用。防災情報 XML から、指定した市区町村の警報・注意報を取り出して本文にする。該当のない発表は落とす",
+        summary: "気象庁専用。防災情報 XML から、指定した市区町村の警報・注意報を取り出して本文にする。今回新しく発表されたものには印を付ける。該当のない発表は落とす",
         params: JMA_PARAMS,
     },
     ProcessorInfo {
