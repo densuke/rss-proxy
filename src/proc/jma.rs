@@ -32,8 +32,9 @@ const STATUS_NEW: &str = "発表";
 /// 人が読める警報ページ。フィードの link は XML を指しており、リーダーから
 /// 開いても読めないため差し替える。
 const WARNING_PAGE: &str = "https://www.jma.go.jp/bosai/warning/#area_type=offices&area_code=";
-/// 地域の区切り。Slack の /feed は改行を潰すため、1 行になっても切れ目が分かるようにする。
-const AREA_SEPARATOR: &str = "／";
+/// 地域の行頭に付ける。全行に付けることで行頭が揃い、改行が潰れる読み手でも
+/// 切れ目が分かる。
+const AREA_BULLET: &str = "・";
 
 fn default_new_prefix() -> String {
     "【新】".into()
@@ -151,9 +152,9 @@ impl JmaWarning {
 
         let areas = hits
             .iter()
-            .map(|(area, kinds)| format!("{area}: {}", kinds.join(", ")))
+            .map(|(area, kinds)| format!("{AREA_BULLET}{area}: {}", kinds.join(", ")))
             .collect::<Vec<_>>()
-            .join(&format!("\n{AREA_SEPARATOR}"));
+            .join("\n");
 
         // いつ時点の情報かが分からないと、警戒すべきかを判断できない
         item.description = Some(match report_time(xml) {

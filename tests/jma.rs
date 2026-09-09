@@ -232,9 +232,9 @@ fn the_publication_time_is_shown_in_the_body() {
     assert!(body.contains("2026-09-08 12:17"), "発表時刻がない: {body}");
 }
 
-/// Slack の /feed は改行を潰す。区切りが分かる形にしておく。
+/// 地域は箇条書きにする。行頭が揃い、改行が潰れても切れ目が分かる。
 #[test]
-fn areas_are_separated_so_they_survive_a_collapsed_line() {
+fn every_area_line_starts_with_the_same_mark() {
     let mut docs = Documents::empty();
     docs.insert(HYOGO_URL.into(), HYOGO.into());
 
@@ -243,10 +243,15 @@ fn areas_are_separated_so_they_survive_a_collapsed_line() {
         .unwrap();
     let body = out.items[0].description.as_deref().unwrap();
 
-    // 改行が消えても地域の切れ目が分かる
-    let one_line = body.replace('\n', " ");
+    let lines: Vec<&str> = body.lines().collect();
     assert!(
-        one_line.contains("／神戸市灘区:") || one_line.contains("／ 神戸市灘区:"),
-        "区切りが無いと 1 行になったとき読めない: {one_line}"
+        lines[0].contains("時点"),
+        "1 行目は発表時刻: {:?}",
+        lines[0]
     );
+    for line in &lines[1..] {
+        assert!(line.starts_with("・"), "行頭が揃っていない: {line}");
+    }
+    // 改行が消えても切れ目が分かる
+    assert!(body.replace('\n', " ").contains("・神戸市灘区:"));
 }
