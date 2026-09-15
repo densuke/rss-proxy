@@ -175,3 +175,21 @@ fn a_snapshot_is_taken_before_the_schema_moves() {
 fn an_in_memory_database_migrates_without_a_snapshot() {
     Store::open_in_memory().unwrap();
 }
+
+/// 新規インストールでは移行前の状態が存在しない。空のファイルを残さない。
+#[test]
+fn a_brand_new_database_leaves_no_snapshot() {
+    let dir = std::env::temp_dir().join(format!("rss-proxy-fresh-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("fresh.db");
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(dir.join("fresh.db.bak-v0"));
+
+    Store::open(&path).unwrap();
+    assert!(
+        !dir.join("fresh.db.bak-v0").exists(),
+        "中身のない DB のスナップショットを作っている"
+    );
+
+    std::fs::remove_file(&path).ok();
+}

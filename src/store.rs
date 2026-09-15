@@ -156,11 +156,19 @@ impl Store {
         let Some(path) = self.conn.path().filter(|p| !p.is_empty()) else {
             return Ok(());
         };
+        // 新規インストールには残す状態がない。起動しただけで空のファイルが増えないように
+        let feeds: i64 = self
+            .conn
+            .query_row("SELECT count(*) FROM feeds", [], |row| row.get(0))?;
+        if feeds == 0 {
+            return Ok(());
+        }
         let dest = std::path::PathBuf::from(format!("{path}.bak-v{applied}"));
-        // 前回の移行前の状態を壊さない。取れなくても起動は続ける
+        // 前回の移行前の状態を上書きしない
         if dest.exists() {
             return Ok(());
         }
+        // 取れなければ移行に進まない。戻せないまま進めるより起動を止めるほうがよい
         self.snapshot_to(&dest)
     }
 
