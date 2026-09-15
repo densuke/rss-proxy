@@ -38,6 +38,9 @@ pub struct Feed {
 /// Processor 連鎖の 1 要素。(kind, params の JSON)
 pub type ProcessorSpec = (String, String);
 
+/// 移行の段数。ここまで進んでいれば何もしない。
+const SCHEMA_VERSION: i64 = 3;
+
 /// 初期スキーマ。以降の変更は MIGRATIONS で積み上げる。
 const SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS feeds (
@@ -125,6 +128,9 @@ impl Store {
         let applied: i64 = self
             .conn
             .query_row("PRAGMA user_version", [], |row| row.get(0))?;
+        if applied < SCHEMA_VERSION {
+            self.snapshot_before_migration(applied)?;
+        }
         if applied < 1 {
             self.split_name_into_slug_and_label()?;
             self.conn.execute_batch("PRAGMA user_version = 1")?;
@@ -137,6 +143,40 @@ impl Store {
             self.seed_global_processors()?;
             self.conn.execute_batch("PRAGMA user_version = 3")?;
         }
+        Ok(())
+    }
+
+    /// 移行を適用する前の状態を、同じディレクトリに 1 ファイルとして残す。
+    ///
+    /// 移行には列の rename や drop が含まれ、途中で失敗すると元に戻せない。
+    /// WAL を使っているため DB ファイルを単にコピーしても一貫しない。`VACUUM INTO`
+    /// なら WAL の内容を含んだスナップショットを 1 ファイルで書き出せる。
+    fn snapshot_before_migration(&self, applied: i64) -> Result<()> {
+        // インメモリ DB には保存先がない。テストと preview が通る
+        let Some(path) = self.conn.path().filter(|p| !p.is_empty()) else {
+            return Ok(());
+        };
+        // 新規インストールには残す状態がない。起動しただけで空のファイルが増えないように
+        let feeds: i64 = self
+            .conn
+            .query_row("SELECT count(*) FROM feeds", [], |row| row.get(0))?;
+        if feeds == 0 {
+            return Ok(());
+        }
+        let dest = std::path::PathBuf::from(format!("{path}.bak-v{applied}"));
+        // 前回の移行前の状態を上書きしない
+        if dest.exists() {
+            return Ok(());
+        }
+        // 取れなければ移行に進まない。戻せないまま進めるより起動を止めるほうがよい
+        self.snapshot_to(&dest)
+    }
+
+    /// DB の一貫したスナップショットを `dest` に書き出す。
+    /// `dest` が既にあると SQLite 側がエラーにする。上書きはしない。
+    pub fn snapshot_to(&self, dest: &std::path::Path) -> Result<()> {
+        self.conn
+            .execute("VACUUM INTO ?1", [dest.to_string_lossy()])?;
         Ok(())
     }
 

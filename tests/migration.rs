@@ -116,3 +116,80 @@ fn the_unused_enabled_columns_are_dropped() {
 
     std::fs::remove_file(&path).ok();
 }
+
+/// 取り返しのつかない操作 (列の rename / drop) を含むため、適用前の状態を残す。
+#[test]
+fn a_snapshot_is_taken_before_the_schema_moves() {
+    let dir = std::env::temp_dir().join(format!("rss-proxy-snapshot-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("legacy.db");
+    let backup = dir.join("legacy.db.bak-v0");
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(&backup);
+    legacy_db(&path);
+
+    let store = Store::open(&path).unwrap();
+    assert!(backup.exists(), "適用前のスナップショットがない");
+
+    // 中身は適用前の状態。移行で消える列がそのまま残っている
+    let old = Connection::open(&backup).unwrap();
+    let has_name: bool = old
+        .prepare("SELECT 1 FROM pragma_table_info('feeds') WHERE name = 'name'")
+        .unwrap()
+        .exists([])
+        .unwrap();
+    assert!(has_name, "スナップショットが適用後の形になっている");
+    let feeds: i64 = old
+        .query_row("SELECT count(*) FROM feeds", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(feeds, 2, "スナップショットにデータが入っていない");
+    drop(old);
+
+    // 進める段がなければ増やさない。起動のたびにファイルが増えては困る
+    let taken: Vec<_> = std::fs::read_dir(&dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name())
+        .filter(|n| n.to_string_lossy().contains(".bak-v"))
+        .collect();
+    drop(store);
+    Store::open(&path).unwrap();
+    let after: Vec<_> = std::fs::read_dir(&dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name())
+        .filter(|n| n.to_string_lossy().contains(".bak-v"))
+        .collect();
+    assert_eq!(
+        taken.len(),
+        after.len(),
+        "2 回目の起動でスナップショットが増えた"
+    );
+
+    std::fs::remove_file(&path).ok();
+    std::fs::remove_file(&backup).ok();
+}
+
+/// インメモリ DB には保存先がない。テストと preview が通る道なので落ちては困る。
+#[test]
+fn an_in_memory_database_migrates_without_a_snapshot() {
+    Store::open_in_memory().unwrap();
+}
+
+/// 新規インストールでは移行前の状態が存在しない。空のファイルを残さない。
+#[test]
+fn a_brand_new_database_leaves_no_snapshot() {
+    let dir = std::env::temp_dir().join(format!("rss-proxy-fresh-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("fresh.db");
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(dir.join("fresh.db.bak-v0"));
+
+    Store::open(&path).unwrap();
+    assert!(
+        !dir.join("fresh.db.bak-v0").exists(),
+        "中身のない DB のスナップショットを作っている"
+    );
+
+    std::fs::remove_file(&path).ok();
+}
