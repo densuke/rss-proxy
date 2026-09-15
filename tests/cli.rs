@@ -371,3 +371,44 @@ fn changing_the_global_chain_reschedules_every_feed() {
         );
     }
 }
+
+/// 日常的なバックアップ。移行前の自動取得はスキーマが変わるときにしか走らない。
+#[test]
+fn backs_up_the_database_to_a_new_file() {
+    let dir = std::env::temp_dir().join(format!("rss-proxy-backup-cmd-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let dest = dir.join("snapshot.db");
+    let _ = std::fs::remove_file(&dest);
+
+    let s = store();
+    add(&s, "gnews");
+    run(&s, Command::Backup { path: dest.clone() }).unwrap();
+
+    // 取ったファイルをそのまま DB として開ける
+    let restored = Store::open(&dest).unwrap();
+    let feeds = restored.list_feeds().unwrap();
+    assert_eq!(feeds.len(), 1);
+    assert_eq!(feeds[0].slug, "gnews");
+
+    std::fs::remove_file(&dest).ok();
+}
+
+/// 取り違えて既存のバックアップを消してしまうと元も子もない。
+#[test]
+fn refuses_to_overwrite_an_existing_file() {
+    let dir = std::env::temp_dir().join(format!("rss-proxy-backup-over-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let dest = dir.join("taken.db");
+    std::fs::write(&dest, "大事なもの").unwrap();
+
+    let s = store();
+    add(&s, "gnews");
+    assert!(run(&s, Command::Backup { path: dest.clone() }).is_err());
+    assert_eq!(
+        std::fs::read(&dest).unwrap(),
+        "大事なもの".as_bytes(),
+        "既存のファイルを壊している"
+    );
+
+    std::fs::remove_file(&dest).ok();
+}

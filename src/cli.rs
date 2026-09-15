@@ -18,6 +18,11 @@ pub enum Command {
     /// 全フィード共通の Processor 連鎖の管理
     #[command(subcommand)]
     Global(GlobalCmd),
+    /// DB のスナップショットを取る
+    Backup {
+        /// 書き出し先。既にあるファイルは指定できない
+        path: std::path::PathBuf,
+    },
 }
 
 #[derive(Subcommand)]
@@ -104,7 +109,20 @@ pub fn run(store: &Store, command: Command) -> Result<String> {
         Command::Feed(cmd) => feed(store, cmd),
         Command::Proc(cmd) => processor(store, cmd),
         Command::Global(cmd) => global(store, cmd),
+        Command::Backup { path } => backup(store, &path),
     }
+}
+
+/// 稼働中でも取れる。WAL を使っているため DB ファイルのコピーは一貫しない。
+fn backup(store: &Store, path: &std::path::Path) -> Result<String> {
+    // SQLite も上書きを拒むが、先に見ることで何が起きたか分かる形で伝える
+    if path.exists() {
+        bail!("{} は既にあります", path.display());
+    }
+    store
+        .snapshot_to(path)
+        .with_context(|| format!("バックアップできません: {}", path.display()))?;
+    Ok(format!("バックアップしました: {}", path.display()))
 }
 
 fn feed(store: &Store, cmd: FeedCmd) -> Result<String> {
