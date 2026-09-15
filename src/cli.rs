@@ -115,8 +115,12 @@ pub fn run(store: &Store, command: Command) -> Result<String> {
 
 /// 稼働中でも取れる。WAL を使っているため DB ファイルのコピーは一貫しない。
 fn backup(store: &Store, path: &std::path::Path) -> Result<String> {
-    // SQLite も上書きを拒むが、先に見ることで何が起きたか分かる形で伝える
-    if path.exists() {
+    // SQLite も上書きを拒むが、先に見ることで何が起きたか分かる形で伝える。
+    // 存在を確かめられないこと自体も (権限不足など) 理由として伝える
+    let taken = path
+        .try_exists()
+        .with_context(|| format!("確認できません: {}", path.display()))?;
+    if taken {
         bail!("{} は既にあります", path.display());
     }
     store
