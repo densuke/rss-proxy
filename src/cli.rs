@@ -157,7 +157,9 @@ fn export(store: &Store) -> Result<String> {
             .into_iter()
             .map(|(kind, params)| Proc {
                 kind,
-                params: serde_json::from_str(&params).unwrap_or_else(|_| serde_json::json!({})),
+                // 読めない値でも落とさずそのまま出す。書き出しは設定を残すためのもので、
+                // 捨ててよいと判断できるのは中身を見た人だけ
+                params: serde_json::from_str(&params).unwrap_or(serde_json::Value::String(params)),
             })
             .collect()
     }
@@ -175,6 +177,9 @@ fn export(store: &Store) -> Result<String> {
             processors: chain(specs),
         });
     }
+
+    // 登録順ではなく識別子順。別の環境で組み直しても同じ並びになり、差分を見やすくする
+    feeds.sort_by(|a, b| a.slug.cmp(&b.slug));
 
     let config = Config {
         global_processors: chain(

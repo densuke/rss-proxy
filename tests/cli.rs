@@ -474,3 +474,32 @@ fn exports_an_empty_database() {
     let json: serde_json::Value = serde_json::from_str(&out).unwrap();
     assert_eq!(json["feeds"].as_array().unwrap().len(), 0);
 }
+
+/// 差分を見るために出すので、読めない値でも捨てない。
+#[test]
+fn keeps_processor_params_that_are_not_json() {
+    let s = store();
+    add(&s, "gnews");
+    // 手で DB をいじった場合など、通常の経路では入らない値
+    s.set_processors(1, &[("dedupe".into(), "これは JSON ではない".into())])
+        .unwrap();
+
+    let out = run(&s, Command::Config(ConfigCmd::Export)).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(
+        json["feeds"][0]["processors"][0]["params"],
+        "これは JSON ではない"
+    );
+}
+
+/// 別の環境で組み直しても同じ並びになるように。
+#[test]
+fn exports_feeds_in_slug_order() {
+    let s = store();
+    add(&s, "zzz");
+    add(&s, "aaa");
+    let out = run(&s, Command::Config(ConfigCmd::Export)).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(json["feeds"][0]["slug"], "aaa");
+    assert_eq!(json["feeds"][1]["slug"], "zzz");
+}
