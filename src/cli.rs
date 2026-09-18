@@ -23,6 +23,15 @@ pub enum Command {
         /// 書き出し先。既にあるファイルは指定できない
         path: std::path::PathBuf,
     },
+    /// 設定の持ち出し
+    #[command(subcommand)]
+    Config(ConfigCmd),
+}
+
+#[derive(Subcommand)]
+pub enum ConfigCmd {
+    /// 登録内容を JSON で標準出力に書き出す
+    Export,
 }
 
 #[derive(Subcommand)]
@@ -110,7 +119,77 @@ pub fn run(store: &Store, command: Command) -> Result<String> {
         Command::Proc(cmd) => processor(store, cmd),
         Command::Global(cmd) => global(store, cmd),
         Command::Backup { path } => backup(store, &path),
+        Command::Config(ConfigCmd::Export) => export(store),
     }
+}
+
+/// 設定を人が読める形で書き出す。
+///
+/// バックアップ (`backup`) は SQLite ファイルで、中身を目で確認したり
+/// 版管理に載せたりできない。こちらは手で組み立てた設定だけを出す。
+///
+/// 巡回の状態 (etag, next_fetch_at など) と、巡回で作り直せるもの
+/// (保存済みの配信内容、外部文書、有料判定の結果) は設定ではないので出さない。
+fn export(store: &Store) -> Result<String> {
+    /// 項目の並びをそのまま出すため、json! マクロではなく型で持つ。
+    #[derive(serde::Serialize)]
+    struct Config {
+        global_processors: Vec<Proc>,
+        feeds: Vec<ExportedFeed>,
+    }
+    #[derive(serde::Serialize)]
+    struct ExportedFeed {
+        slug: String,
+        label: Option<String>,
+        url: String,
+        interval_secs: i64,
+        processors: Vec<Proc>,
+    }
+    #[derive(serde::Serialize)]
+    struct Proc {
+        kind: String,
+        /// DB では文字列だが、読めるように展開して埋める
+        params: serde_json::Value,
+    }
+
+    fn chain(specs: Vec<(String, String)>) -> Vec<Proc> {
+        specs
+            .into_iter()
+            .map(|(kind, params)| Proc {
+                kind,
+                // 読めない値でも落とさずそのまま出す。書き出しは設定を残すためのもので、
+                // 捨ててよいと判断できるのは中身を見た人だけ
+                params: serde_json::from_str(&params).unwrap_or(serde_json::Value::String(params)),
+            })
+            .collect()
+    }
+
+    let mut feeds = Vec::new();
+    for feed in store.list_feeds().context("フィードを読み出せません")? {
+        let specs = store
+            .processors(feed.id)
+            .with_context(|| format!("{} の Processor 連鎖を読み出せません", feed.slug))?;
+        feeds.push(ExportedFeed {
+            slug: feed.slug,
+            label: feed.label,
+            url: feed.url,
+            interval_secs: feed.interval_secs,
+            processors: chain(specs),
+        });
+    }
+
+    // 登録順ではなく識別子順。別の環境で組み直しても同じ並びになり、差分を見やすくする
+    feeds.sort_by(|a, b| a.slug.cmp(&b.slug));
+
+    let config = Config {
+        global_processors: chain(
+            store
+                .global_processors()
+                .context("共通の Processor 連鎖を読み出せません")?,
+        ),
+        feeds,
+    };
+    Ok(serde_json::to_string_pretty(&config)?)
 }
 
 /// 稼働中でも取れる。WAL を使っているため DB ファイルのコピーは一貫しない。
