@@ -584,6 +584,7 @@ rss-proxy proc move <feed> <from> <to>
 rss-proxy preview <name>             # 保存済みの配信内容を標準出力に表示
 
 rss-proxy backup <path>              # DB のスナップショットを取る
+rss-proxy config export              # 登録内容を JSON で標準出力に書き出す
 ```
 
 CLI はサーバー API を経由せず SQLite に直接アクセスする。サーバーが停止していても設定を編集でき、初期セットアップやトラブル時の復旧が容易になる。WAL モードにより稼働中のサーバーとの同時アクセスも安全。
@@ -593,6 +594,18 @@ CLI はサーバー API を経由せず SQLite に直接アクセスする。サ
 `backup` は 12.5 と同じ `VACUUM INTO` で DB のスナップショットを取る。移行前の自動取得はスキーマが変わるときにしか走らないため、日常的なバックアップはこちらを使う。稼働中でも一貫したスナップショットが取れる。書き出し先が既にある場合は上書きせずエラーにし、終了コードを 0 以外にする (cron や systemd timer から失敗を検知できるように)。
 
 出力は通常の SQLite ファイルなので、戻すときはサーバーを停止して DB ファイルを置き換えるだけでよい。リストア専用のサブコマンドは用意しない。
+
+`config export` は登録内容を JSON で書き出す。`backup` の出力は SQLite ファイルで、中身を目で確認したり版管理に載せたり一部だけ別のホストへ移したりできない。手で組み立てた設定だけを人の読める形で残す。
+
+出す対象は `feeds` (slug / label / url / interval_secs) と、フィードごとおよび共通の Processor 連鎖。順序が意味を持つのでそのまま保つ。`params` は DB では文字列だが、読めるように展開して埋める。
+
+出さないもの:
+
+- `outputs` / `documents` / `paywall_cache` — 次の巡回で作り直せる
+- `etag` / `last_modified` / `next_fetch_at` / `last_success_at` / `last_error` / `fail_count` — 巡回の状態であって設定ではない
+- `id` — 取り込み側で振り直す
+
+取り込み (`config import`) は見送る。既存の設定と衝突したときの扱いを決める必要があり、破壊的な操作になるため、書き出しの形式が固まってから足す。
 
 ## 10. ディレクトリ構成
 

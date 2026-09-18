@@ -49,6 +49,14 @@ $ rss-proxy backup rss-proxy-20260915.db
 
 スキーマが変わる更新では、起動時に移行を適用する前のスナップショットが `rss-proxy.db.bak-v<段数>` として自動で残る。
 
+登録内容だけを人の読める形で残すこともできる。
+
+```console
+$ rss-proxy config export > feeds.json
+```
+
+フィード (識別子・表示名・URL・巡回間隔) と Processor 連鎖を JSON で書き出す。巡回の状態や、巡回で作り直せるもの (保存済みの配信内容など) は含まない。
+
 ## 気象庁の防災情報
 
 気象庁のフィード (`https://www.data.jma.go.jp/developer/xml/feed/extra.xml`) は、entry 自体に市区町村の情報を持たない。リンク先の XML を取って初めて分かる。

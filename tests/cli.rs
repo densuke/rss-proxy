@@ -1,4 +1,4 @@
-use rss_proxy::cli::{Command, FeedCmd, ProcCmd, run};
+use rss_proxy::cli::{Command, ConfigCmd, FeedCmd, ProcCmd, run};
 use rss_proxy::store::Store;
 
 fn store() -> Store {
@@ -411,4 +411,66 @@ fn refuses_to_overwrite_an_existing_file() {
     );
 
     std::fs::remove_file(&dest).ok();
+}
+
+/// バックアップの SQLite ファイルは中身を目で確認できない。設定は読める形でも出す。
+#[test]
+fn exports_feeds_and_processor_chains_as_json() {
+    let s = store();
+    add(&s, "gnews");
+    add(&s, "nhk");
+    run(
+        &s,
+        Command::Proc(ProcCmd::Attach {
+            feed: "gnews".into(),
+            kind: "dedupe".into(),
+            params: Some(r#"{"key":"guid"}"#.into()),
+            at: None,
+        }),
+    )
+    .unwrap();
+    run(
+        &s,
+        Command::Proc(ProcCmd::Attach {
+            feed: "gnews".into(),
+            kind: "normalize_width".into(),
+            params: None,
+            at: None,
+        }),
+    )
+    .unwrap();
+
+    let out = run(&s, Command::Config(ConfigCmd::Export)).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&out).expect("JSON として読めない");
+
+    let feeds = json["feeds"].as_array().unwrap();
+    assert_eq!(feeds.len(), 2);
+    assert_eq!(feeds[0]["slug"], "gnews");
+    assert_eq!(feeds[0]["url"], "https://example.com/gnews.xml");
+    assert_eq!(feeds[0]["interval_secs"], 900);
+
+    // 連鎖は順序が意味を持つ
+    let chain = feeds[0]["processors"].as_array().unwrap();
+    assert_eq!(chain.len(), 2);
+    assert_eq!(chain[0]["kind"], "dedupe");
+    assert_eq!(chain[0]["params"]["key"], "guid");
+    assert_eq!(chain[1]["kind"], "normalize_width");
+
+    // 巡回の状態は設定ではない。取り込み先を汚さないよう出さない
+    let printed = feeds[0].as_object().unwrap();
+    for state in ["etag", "last_modified", "next_fetch_at", "fail_count", "id"] {
+        assert!(!printed.contains_key(state), "{state} が出ている");
+    }
+
+    // 既定で入る共通の連鎖も出る
+    assert!(json["global_processors"].is_array());
+}
+
+/// 何も登録していない DB でも壊れた JSON にしない。
+#[test]
+fn exports_an_empty_database() {
+    let s = store();
+    let out = run(&s, Command::Config(ConfigCmd::Export)).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(json["feeds"].as_array().unwrap().len(), 0);
 }
