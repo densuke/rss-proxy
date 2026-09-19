@@ -200,3 +200,44 @@ async fn posts_without_an_origin_header_still_work_for_scripts() {
         .unwrap();
     assert_eq!(res.status(), 303);
 }
+
+/// 配信 URL の一覧がまとめて出るため、配信そのものとは扱いを変える。
+#[tokio::test]
+async fn the_opml_listing_requires_credentials() {
+    let (base, c) = serve(Some(admin())).await;
+
+    assert_eq!(
+        c.get(format!("{base}/opml")).send().await.unwrap().status(),
+        401
+    );
+
+    let res = c
+        .get(format!("{base}/opml"))
+        .header("authorization", basic("admin", "秘密"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 200);
+
+    // ベース URL はリクエストから組み立てる。リバースプロキシの背後でも正しく出す
+    let body = res.text().await.unwrap();
+    assert!(body.contains(&format!("{base}/feeds/news")), "{body}");
+}
+
+/// リバースプロキシの背後では、内部の通信が http でも外向きは https になる。
+#[tokio::test]
+async fn the_opml_listing_honours_the_forwarded_scheme() {
+    let (base, c) = serve(Some(admin())).await;
+
+    let body = c
+        .get(format!("{base}/opml"))
+        .header("authorization", basic("admin", "秘密"))
+        .header("x-forwarded-proto", "https")
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert!(body.contains("xmlUrl=\"https://"), "{body}");
+}

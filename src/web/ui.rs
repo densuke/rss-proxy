@@ -114,6 +114,8 @@ pub async fn index(State(store): State<SharedStore>) -> Response {
              <table><tr><th>名前</th><th>タイトル</th><th>間隔</th>\
              <th>最終取得 ({offset})</th><th>状態</th><th>配信</th></tr>\
              {rows}</table>\
+             <p><a href=\"/opml\">OPML をダウンロード</a> \
+             <small>配信 URL の一覧。RSS リーダーに一括で取り込める</small></p>\
              <h2>全フィード共通の処理</h2>\
              <p>ここで指定した処理が、各フィード固有の処理より<strong>先に</strong>走る。<br>\
              全角の正規化を先に済ませておけば、フィード側の判定が半角の表記で書ける。</p>\
