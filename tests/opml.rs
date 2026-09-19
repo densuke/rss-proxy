@@ -87,3 +87,13 @@ fn lists_feeds_in_slug_order() {
     let second = xml.find("zzz").unwrap();
     assert!(first < second, "識別子順になっていない: {xml}");
 }
+
+/// 起点も外部から来る。CLI の引数にも HTTP の Host ヘッダにも任意の文字列が入る。
+#[test]
+fn escapes_the_base_url_too() {
+    let store = store_with(&[("gnews", None)]);
+    let xml = opml::render(&store.list_feeds().unwrap(), r#"http://x" bad="1"#);
+
+    assert!(!xml.contains(r#"" bad="#), "属性を閉じられている: {xml}");
+    assert!(parses(&xml), "XML として読めない: {xml}");
+}

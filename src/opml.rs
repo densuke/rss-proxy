@@ -18,10 +18,12 @@ pub fn render(feeds: &[Feed], base_url: &str) -> String {
         .iter()
         .map(|feed| {
             let name = escape(display_name(feed));
+            // 起点も外部から来る (CLI の引数、HTTP の Host ヘッダ)。
+            // 組み立ててから 1 回だけ通す。先に通すと二重にエスケープされる
+            let url = escape(&format!("{base}/feeds/{slug}", slug = feed.slug));
             format!(
                 "    <outline type=\"rss\" text=\"{name}\" title=\"{name}\" \
-                 xmlUrl=\"{base}/feeds/{slug}\"/>\n",
-                slug = escape(&feed.slug),
+                 xmlUrl=\"{url}\"/>\n"
             )
         })
         .collect();
