@@ -26,12 +26,25 @@ pub enum Command {
     /// 設定の持ち出し
     #[command(subcommand)]
     Config(ConfigCmd),
+    /// 配信 URL の一覧
+    #[command(subcommand)]
+    Opml(OpmlCmd),
 }
 
 #[derive(Subcommand)]
 pub enum ConfigCmd {
     /// 登録内容を JSON で標準出力に書き出す
     Export,
+}
+
+#[derive(Subcommand)]
+pub enum OpmlCmd {
+    /// 配信 URL の一覧を OPML で標準出力に書き出す
+    Export {
+        /// 配信の起点 (https://rss.example.com など)。CLI からはホスト名が分からない
+        #[arg(long)]
+        base_url: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -120,6 +133,10 @@ pub fn run(store: &Store, command: Command) -> Result<String> {
         Command::Global(cmd) => global(store, cmd),
         Command::Backup { path } => backup(store, &path),
         Command::Config(ConfigCmd::Export) => export(store),
+        Command::Opml(OpmlCmd::Export { base_url }) => {
+            let feeds = store.list_feeds().context("フィードを読み出せません")?;
+            Ok(crate::opml::render(&feeds, &base_url))
+        }
     }
 }
 

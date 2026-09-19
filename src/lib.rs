@@ -3,6 +3,7 @@ pub mod cli;
 pub mod fetch;
 pub mod html;
 pub mod model;
+pub mod opml;
 pub mod parse;
 pub mod paywall;
 pub mod proc;

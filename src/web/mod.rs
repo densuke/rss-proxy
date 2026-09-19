@@ -39,6 +39,8 @@ pub fn app_with_auth(store: Store, admin: Option<Admin>) -> Router {
         .route("/ui/feeds/{name}/rename", post(ui::rename))
         .route("/ui/feeds/{name}/processors", post(ui::set_chain))
         .route("/ui/feeds/{name}/fetch", post(ui::fetch_now))
+        // 配信 URL の一覧がまとめて出るため、配信そのものとは扱いを変える
+        .route("/opml", get(opml))
         .layer(axum::middleware::from_fn_with_state(
             admin,
             guard::require_admin,
@@ -59,6 +61,37 @@ pub fn app_with_auth(store: Store, admin: Option<Admin>) -> Router {
         )
         .merge(admin_routes)
         .with_state(state)
+}
+
+/// 配信 URL の一覧。RSS リーダーに一括で登録するために使う。
+///
+/// 起点はリクエストから組み立てる。リバースプロキシの背後では内部の通信が
+/// http でも外向きは https になるため、`X-Forwarded-Proto` を優先する。
+pub async fn opml(State(store): State<SharedStore>, headers: axum::http::HeaderMap) -> Response {
+    let feeds = match store.lock().expect("store lock").list_feeds() {
+        Ok(feeds) => feeds,
+        Err(e) => {
+            eprintln!("opml: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+
+    let value = |name: &str| headers.get(name).and_then(|v| v.to_str().ok());
+    let scheme = value("x-forwarded-proto").unwrap_or("http");
+    let host = value("host").unwrap_or("localhost");
+
+    (
+        [
+            (header::CONTENT_TYPE, "text/x-opml; charset=utf-8"),
+            // リーダーに読み込ませるファイルなので、ブラウザでは保存させる
+            (
+                header::CONTENT_DISPOSITION,
+                "attachment; filename=\"rss-proxy.opml\"",
+            ),
+        ],
+        crate::opml::render(&feeds, &format!("{scheme}://{host}")),
+    )
+        .into_response()
 }
 
 /// 処理済みフィードの配信。保存済みの出力を返すだけで、上流には触らない。

@@ -1,4 +1,4 @@
-use rss_proxy::cli::{Command, ConfigCmd, FeedCmd, ProcCmd, run};
+use rss_proxy::cli::{Command, ConfigCmd, FeedCmd, OpmlCmd, ProcCmd, run};
 use rss_proxy::store::Store;
 
 fn store() -> Store {
@@ -502,4 +502,22 @@ fn exports_feeds_in_slug_order() {
     let json: serde_json::Value = serde_json::from_str(&out).unwrap();
     assert_eq!(json["feeds"][0]["slug"], "aaa");
     assert_eq!(json["feeds"][1]["slug"], "zzz");
+}
+
+/// 識別子は乱数なので、配信 URL を手で写さずに済むようにする。
+#[test]
+fn exports_delivery_urls_as_opml() {
+    let s = store();
+    add(&s, "gnews");
+    let out = run(
+        &s,
+        Command::Opml(OpmlCmd::Export {
+            base_url: "https://rss.example.com".into(),
+        }),
+    )
+    .unwrap();
+    assert!(
+        out.contains(r#"xmlUrl="https://rss.example.com/feeds/gnews""#),
+        "{out}"
+    );
 }

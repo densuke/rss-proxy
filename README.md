@@ -34,6 +34,12 @@ listening on 127.0.0.1:8080
 
 RSS リーダーには `http://127.0.0.1:8080/feeds/gnews` を登録する。管理画面は `http://127.0.0.1:8080/` にある。
 
+識別子を省略すると推測されにくい乱数になるため、配信 URL を手で写すのは骨が折れる。管理画面の「OPML をダウンロード」から一覧を取り、リーダーに一括で取り込める。CLI からも取れる。
+
+```console
+$ rss-proxy opml export --base-url https://rss.example.com > feeds.opml
+```
+
 DB のパスは `--db` で指定する (既定 `rss-proxy.db`)。
 
 ## バックアップ
