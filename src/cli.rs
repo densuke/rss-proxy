@@ -65,7 +65,7 @@ pub enum FeedCmd {
     List,
     /// フィードの詳細と Processor 連鎖を表示する
     Show { slug: String },
-    /// 識別子・表示名・巡回間隔を変更する
+    /// 識別子・表示名・巡回間隔・取得元 URL を変更する
     Set {
         slug: String,
         /// 新しい識別子。変更すると購読中の配信 URL が変わる
@@ -75,6 +75,9 @@ pub enum FeedCmd {
         label: Option<String>,
         #[arg(long)]
         interval: Option<i64>,
+        /// 取得元の URL。識別子は変わらないので、購読中の配信 URL はそのまま使える
+        #[arg(long)]
+        url: Option<String>,
     },
     /// フィードを削除する
     Rm { slug: String },
@@ -298,6 +301,7 @@ fn feed(store: &Store, cmd: FeedCmd) -> Result<String> {
             new_slug,
             label,
             interval,
+            url,
         } => {
             let f = find(store, &slug)?;
             if let Some(new) = &new_slug {
@@ -314,6 +318,11 @@ fn feed(store: &Store, cmd: FeedCmd) -> Result<String> {
             }
             if let Some(interval) = interval {
                 store.set_interval(f.id, interval)?;
+            }
+            if let Some(url) = url {
+                store.set_url(f.id, &url)?;
+                // 前の URL の検証子を送ると 304 が返り、新しい中身を取り逃す
+                reschedule(store, f.id)?;
             }
             Ok(format!("更新しました: {}", new_slug.unwrap_or(slug)))
         }

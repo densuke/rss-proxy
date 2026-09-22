@@ -286,6 +286,12 @@ impl Store {
         Ok(())
     }
 
+    pub fn set_url(&self, id: i64, url: &str) -> Result<()> {
+        self.conn
+            .execute("UPDATE feeds SET url = ?2 WHERE id = ?1", params![id, url])?;
+        Ok(())
+    }
+
     pub fn set_enabled(&self, id: i64, enabled: bool) -> Result<()> {
         self.conn.execute(
             "UPDATE feeds SET enabled = ?2 WHERE id = ?1",

@@ -145,6 +145,8 @@ exclude {"words":["- 日本経済新聞"],"target":"title"}
 
 識別子は後から `feed set --new-slug` や管理画面で変更できる。**変更すると配信 URL が変わり、購読中の登録が切れる。**
 
+取得元の URL は `feed set --url` で差し替えられる。識別子はそのままなので、購読中の配信 URL も変わらない。
+
 ## Processor
 
 順序つきの連鎖として登録する。同じ種別を異なるパラメータで複数回登録してもよい。
@@ -202,7 +204,7 @@ rss-proxy preview <name>                    保存済みの配信内容を表示
 rss-proxy feed add <url> [--slug X] [--label Y] [--interval 900]
 rss-proxy feed list
 rss-proxy feed show <slug>
-rss-proxy feed set <slug> [--new-slug X] [--label Y] [--interval N]
+rss-proxy feed set <slug> [--new-slug X] [--label Y] [--interval N] [--url U]
 rss-proxy feed rm <slug>
 
 rss-proxy proc list
