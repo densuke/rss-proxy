@@ -26,8 +26,7 @@ fn only_the_comprehensive_document_of_the_matching_prefecture_is_requested() {
             "余計な文書を要求している: {u}"
         );
     }
-    // 同じ予報区でも複数の発表があるので、最新のものだけを取る
-    assert_eq!(wants.len(), 1, "{wants:?}");
+    // 継続中の警報の発令時刻を辿るため過去の発表も取る。最新が先頭
     assert_eq!(wants[0], HYOGO_URL);
 }
 
@@ -36,7 +35,6 @@ fn multiple_municipalities_across_prefectures_are_resolved() {
     let wants = proc(r#"{"areas":["神戸市","佐倉市","名古屋市"]}"#).wants(&feed());
     let codes: Vec<&str> = ["280000", "120000", "230000"].into();
 
-    assert_eq!(wants.len(), 3, "県ごとに 1 件ずつ: {wants:?}");
     for code in codes {
         assert!(
             wants
@@ -134,16 +132,7 @@ fn gifu_feed() -> Feed {
         link: None,
         description: None,
         updated: None,
-        items: vec![rss_proxy::model::Item {
-            id: None,
-            title: Some("気象警報・注意報".into()),
-            link: Some(GIFU_URL.into()),
-            description: None,
-            published: None,
-            authors: vec![],
-            categories: vec![],
-            paywalled: None,
-        }],
+        items: vec![jma_item(GIFU_URL, "2026-09-09T04:58:00+09:00")],
     }
 }
 
@@ -254,4 +243,153 @@ fn every_area_line_starts_with_the_same_mark() {
     }
     // 改行が消えても切れ目が分かる
     assert!(body.replace('\n', " ").contains("・神戸市灘区:"));
+}
+
+/// 過去の発表を辿るための URL。フィードの並びとは無関係に、published で新旧を決める。
+const HYOGO_OLDER_URL: &str =
+    "https://www.data.jma.go.jp/developer/xml/data/20260908000000_0_VPWW53_280000.xml";
+const HYOGO_OLDEST_URL: &str =
+    "https://www.data.jma.go.jp/developer/xml/data/20260907120000_0_VPWW53_280000.xml";
+
+fn jma_item(url: &str, published: &str) -> rss_proxy::model::Item {
+    rss_proxy::model::Item {
+        id: None,
+        title: Some("気象警報・注意報".into()),
+        link: Some(url.into()),
+        description: None,
+        published: Some(
+            chrono::DateTime::parse_from_rfc3339(published)
+                .unwrap()
+                .into(),
+        ),
+        authors: vec![],
+        categories: vec![],
+        paywalled: None,
+    }
+}
+
+/// 最新 (12:17, すべて継続) と、それより前の発表 2 件を持つフィード。
+fn hyogo_history_feed() -> Feed {
+    Feed {
+        title: "t".into(),
+        link: None,
+        description: None,
+        updated: None,
+        items: vec![
+            jma_item(HYOGO_OLDEST_URL, "2026-09-07T12:00:00+09:00"),
+            jma_item(HYOGO_URL, "2026-09-08T12:17:00+09:00"),
+            jma_item(HYOGO_OLDER_URL, "2026-09-08T09:00:00+09:00"),
+        ],
+    }
+}
+
+/// 最新の XML を元に、発表時刻と Status を差し替えた過去の発表を作る。
+fn hyogo_as_of(at: &str, status: &str) -> String {
+    HYOGO.replace("2026-09-08T12:17:00+09:00", at).replace(
+        "<Status>継続</Status>",
+        &format!("<Status>{status}</Status>"),
+    )
+}
+
+fn hyogo_body(docs: &Documents) -> String {
+    let out = proc(r#"{"areas":["神戸市東灘区"]}"#)
+        .apply(hyogo_history_feed(), docs)
+        .unwrap();
+    assert_eq!(out.items.len(), 1, "最新の 1 件だけが残る");
+    out.items[0].description.clone().unwrap()
+}
+
+#[test]
+fn past_documents_of_the_office_are_requested_newest_first() {
+    let wants = proc(r#"{"areas":["神戸市"]}"#).wants(&hyogo_history_feed());
+    assert_eq!(
+        wants,
+        vec![HYOGO_URL, HYOGO_OLDER_URL, HYOGO_OLDEST_URL],
+        "取得上限で打ち切られても最新が先に取れる順"
+    );
+}
+
+#[test]
+fn a_continuing_warning_shows_when_it_was_issued() {
+    let mut docs = Documents::empty();
+    docs.insert(HYOGO_URL.into(), HYOGO.into());
+    docs.insert(
+        HYOGO_OLDER_URL.into(),
+        hyogo_as_of("2026-09-08T09:00:00+09:00", "発表"),
+    );
+
+    let body = hyogo_body(&docs);
+    // 発表時刻 (12:17) と同じ日なら時刻だけ
+    assert!(
+        body.contains("・神戸市東灘区: 大雨注意報(09:00〜), 雷注意報(09:00〜)"),
+        "{body}"
+    );
+}
+
+#[test]
+fn the_issue_date_is_shown_when_it_differs_from_the_report() {
+    let mut docs = Documents::empty();
+    docs.insert(HYOGO_URL.into(), HYOGO.into());
+    docs.insert(
+        HYOGO_OLDER_URL.into(),
+        hyogo_as_of("2026-09-08T09:00:00+09:00", "継続"),
+    );
+    docs.insert(
+        HYOGO_OLDEST_URL.into(),
+        hyogo_as_of("2026-09-07T12:00:00+09:00", "発表"),
+    );
+
+    let body = hyogo_body(&docs);
+    assert!(body.contains("大雨注意報(9/7 12:00〜)"), "{body}");
+}
+
+#[test]
+fn nothing_is_shown_when_the_issue_is_beyond_reach() {
+    // 遡った先も継続のまま、フィードの範囲が尽きた
+    let mut docs = Documents::empty();
+    docs.insert(HYOGO_URL.into(), HYOGO.into());
+    docs.insert(
+        HYOGO_OLDER_URL.into(),
+        hyogo_as_of("2026-09-08T09:00:00+09:00", "継続"),
+    );
+
+    let body = hyogo_body(&docs);
+    assert!(
+        body.contains("・神戸市東灘区: 大雨注意報, 雷注意報"),
+        "{body}"
+    );
+}
+
+#[test]
+fn a_missing_document_stops_the_trace() {
+    // 間の文書が未取得なら、その先の「発表」は同じ継続の始まりとは言い切れない
+    let mut docs = Documents::empty();
+    docs.insert(HYOGO_URL.into(), HYOGO.into());
+    docs.insert(
+        HYOGO_OLDEST_URL.into(),
+        hyogo_as_of("2026-09-07T12:00:00+09:00", "発表"),
+    );
+
+    let body = hyogo_body(&docs);
+    assert!(!body.contains('〜'), "{body}");
+}
+
+#[test]
+fn a_break_in_the_warning_stops_the_trace() {
+    // 間の発表で雷注意報が出ていない。最古の「発表」は別の回のもの
+    let mut docs = Documents::empty();
+    docs.insert(HYOGO_URL.into(), HYOGO.into());
+    docs.insert(
+        HYOGO_OLDER_URL.into(),
+        hyogo_as_of("2026-09-08T09:00:00+09:00", "継続")
+            .replace("<Name>雷注意報</Name>", "<Name>解除</Name>"),
+    );
+    docs.insert(
+        HYOGO_OLDEST_URL.into(),
+        hyogo_as_of("2026-09-07T12:00:00+09:00", "発表"),
+    );
+
+    let body = hyogo_body(&docs);
+    assert!(body.contains("大雨注意報(9/7 12:00〜)"), "{body}");
+    assert!(body.ends_with(", 雷注意報"), "{body}");
 }
