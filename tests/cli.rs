@@ -228,6 +228,7 @@ fn renames_the_slug_and_label() {
             new_slug: Some("new".into()),
             label: Some("表示名".into()),
             interval: Some(300),
+            url: None,
         }),
     )
     .unwrap();
@@ -252,6 +253,7 @@ fn renaming_to_an_existing_slug_fails() {
                 new_slug: Some("two".into()),
                 label: None,
                 interval: None,
+                url: None,
             }),
         )
         .is_err()
@@ -310,10 +312,31 @@ fn changing_the_configuration_schedules_an_immediate_refetch() {
             new_slug: None,
             label: Some("表示名".into()),
             interval: None,
+            url: None,
         }),
     )
     .unwrap();
     assert!(!parked(&s), "表示名の変更後は作り直しの対象になる");
+
+    // 取得元 URL の変更。前の URL の etag を送ると 304 で新しい中身を取り逃す
+    park(&s);
+    run(
+        &s,
+        Command::Feed(FeedCmd::Set {
+            slug: "news".into(),
+            new_slug: None,
+            label: None,
+            interval: None,
+            url: Some("https://example.com/moved.xml".into()),
+        }),
+    )
+    .unwrap();
+    assert!(!parked(&s), "URL の変更後は作り直しの対象になる");
+    let f = s.feed_by_slug("news").unwrap().unwrap();
+    assert_eq!(
+        f.url, "https://example.com/moved.xml",
+        "識別子は変えずに差し替わる"
+    );
 }
 
 #[test]
