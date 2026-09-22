@@ -140,9 +140,13 @@ async fn gather_documents(
     feed: &Feed,
 ) -> Documents {
     let mut docs = Documents::empty();
-    let mut wanted: Vec<String> = chain.iter().flat_map(|p| p.wants(feed)).collect();
-    wanted.sort();
-    wanted.dedup();
+    // wants の並びは取得の優先順。上限で打ち切られても先頭から取れるよう順序を保つ
+    let mut seen = std::collections::HashSet::new();
+    let wanted: Vec<String> = chain
+        .iter()
+        .flat_map(|p| p.wants(feed))
+        .filter(|u| seen.insert(u.clone()))
+        .collect();
 
     let mut fetches = 0;
     for url in wanted {

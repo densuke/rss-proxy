@@ -4,21 +4,26 @@
 //! リンク先の XML を取得して初めて分かる。そこで [`Processor::wants`] で必要な
 //! XML を宣言し、取得結果を受け取って description に展開する。
 //!
-//! 取りに行く数を抑えるための絞り込みが 2 段ある。
-//!
 //! 1. **URL に府県予報区コードが入っている** (`..._VPWW53_280000.xml` の 280000)。
-//!    市区町村名から必要なコードを引き、一致する entry だけを対象にする。ここは通信しない
-//! 2. **予報区ごとに最新の 1 件だけ**を取る。古い発表は上書きされている
+//!    市区町村名から必要なコードを引き、一致する entry だけを取りに行く。ここは通信しない
+//! 2. **配信するのは予報区ごとに最新の 1 件だけ**。古い発表は上書きされている。
+//!    過去の発表も取得するが、発令時刻を辿るためだけに使う
 //!
 //! 前回からの差分は自分で保存しない。XML の `Kind` が `Status` を持っており、
 //! 今回新しく出たもの (`発表`) と継続中のもの (`継続`) を気象庁が区別している。
+//!
+//! 継続中の種別の発令時刻は XML に無い。フィードに残っている過去の発表を新しい順に
+//! 辿り、`継続` でなくなった発表の時刻を発令時刻とする。辿れるのはフィードに
+//! 残っている範囲だけなので、長期フィード (`extra_l.xml`) のほうが遡れる。
 //!
 //! 文書型は `VPWW53` (気象特別警報・警報・注意報) のみを使う。`VPWW54` は旧形式の
 //! 重複で、`VPWW55`/`56`/`58`/`59` は同じ事象をレベル表記で分割したもの。
 //! いずれも追加の情報を持たない。
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::sync::LazyLock;
+
+use chrono::{DateTime, FixedOffset};
 
 use crate::model::{Feed, Item};
 use crate::proc::{Documents, Processor, ProcessorError};
@@ -29,6 +34,8 @@ const DOCUMENT_TYPE: &str = "VPWW53";
 const MUNICIPALITY_BLOCK: &str = "気象警報・注意報（市町村等）";
 /// 今回新しく発表された種別の Status。継続中のものは「継続」になる。
 const STATUS_NEW: &str = "発表";
+/// 前回の発表から続いている種別の Status。
+const STATUS_CONTINUING: &str = "継続";
 /// 人が読める警報ページ。フィードの link は XML を指しており、リーダーから
 /// 開いても読めないため差し替える。
 const WARNING_PAGE: &str = "https://www.jma.go.jp/bosai/warning/#area_type=offices&area_code=";
@@ -82,49 +89,32 @@ impl Processor for JmaWarning {
         serde_json::to_string(self).expect("jma_warning のパラメータを直列化できない")
     }
 
+    /// 各予報区の最新を先に、過去の発表をその後に並べる。取得数の上限で
+    /// 打ち切られても、配信に要る最新が先に揃う。
     fn wants(&self, feed: &Feed) -> Vec<String> {
-        let codes = self.office_codes();
-        if codes.is_empty() {
-            return Vec::new();
-        }
-        // 予報区ごとに最新の 1 件だけ。古い発表は上書きされている
-        let mut latest: HashMap<&str, (&str, i64)> = HashMap::new();
-        for item in &feed.items {
-            let Some(link) = item.link.as_deref() else {
-                continue;
-            };
-            let Some(code) = office_code_of(link) else {
-                continue;
-            };
-            if !codes.contains(&code) {
-                continue;
-            }
-            let at = item.published.map(|t| t.timestamp()).unwrap_or(0);
-            let entry = latest.entry(code).or_insert((link, at));
-            if at > entry.1 {
-                *entry = (link, at);
-            }
-        }
-        let mut urls: Vec<String> = latest.values().map(|(u, _)| (*u).to_string()).collect();
-        urls.sort();
-        urls
+        let history = self.history(feed);
+        let latest = history.iter().filter_map(|h| h.first());
+        let past = history.iter().flat_map(|h| h.iter().skip(1));
+        latest.chain(past).cloned().collect()
     }
 
     fn apply(&self, mut feed: Feed, docs: &Documents) -> Result<Feed, ProcessorError> {
-        let wanted = self.wants(&feed);
+        let history = self.history(&feed);
         feed.items.retain_mut(|item| {
             let Some(link) = item.link.clone() else {
                 return false;
             };
-            // wants で選ばれなかった entry (旧形式・他県・古い発表) は落とす
-            if !wanted.contains(&link) {
+            // 予報区ごとの最新だけを残す。旧形式・他県・古い発表は落とす
+            let Some(chain) = history.iter().find(|h| h.first() == Some(&link)) else {
                 return false;
-            }
+            };
             // まだ取得できていない文書は、次の巡回まで出さない
             let Some(xml) = docs.get(&link) else {
                 return false;
             };
-            self.rewrite(item, xml)
+            // 間に未取得の文書があれば、そこで遡るのをやめる
+            let past: Vec<&str> = chain[1..].iter().map_while(|u| docs.get(u)).collect();
+            self.rewrite(item, xml, &past)
         });
         Ok(feed)
     }
@@ -143,9 +133,42 @@ impl JmaWarning {
         codes
     }
 
+    /// 対象の予報区ごとの総合版の URL。それぞれ新しい順。
+    fn history(&self, feed: &Feed) -> Vec<Vec<String>> {
+        let codes = self.office_codes();
+        let mut by_office: BTreeMap<&str, Vec<(i64, &str)>> = BTreeMap::new();
+        for item in &feed.items {
+            let Some(link) = item.link.as_deref() else {
+                continue;
+            };
+            let Some(code) = office_code_of(link) else {
+                continue;
+            };
+            if !codes.contains(&code) {
+                continue;
+            }
+            let at = item.published.map(|t| t.timestamp()).unwrap_or(0);
+            by_office.entry(code).or_default().push((at, link));
+        }
+        by_office
+            .into_values()
+            .map(|mut v| {
+                v.sort_unstable_by(|a, b| b.cmp(a));
+                v.into_iter().map(|(_, u)| u.to_string()).collect()
+            })
+            .collect()
+    }
+
     /// 該当があれば item を書き換えて `true`。無ければ `false` で item ごと落とす。
-    fn rewrite(&self, item: &mut Item, xml: &str) -> bool {
-        let hits = self.warnings_in(xml);
+    /// `past` は同じ予報区の過去の発表で、新しい順。
+    fn rewrite(&self, item: &mut Item, xml: &str, past: &[&str]) -> bool {
+        let report = report_at(xml);
+        // ponytail: 辿る前に全件を解析している。巡回が遅くなったら必要な分だけ解析する
+        let past: Vec<Snapshot> = past
+            .iter()
+            .map(|x| (report_at(x), parse_municipality_warnings(x)))
+            .collect();
+        let hits = self.warnings_in(xml, report, &past);
         if hits.is_empty() {
             return false;
         }
@@ -157,8 +180,8 @@ impl JmaWarning {
             .join("\n");
 
         // いつ時点の情報かが分からないと、警戒すべきかを判断できない
-        item.description = Some(match report_time(xml) {
-            Some(at) => format!("{at} 時点\n{areas}"),
+        item.description = Some(match report {
+            Some(at) => format!("{} 時点\n{areas}", at.format("%Y-%m-%d %H:%M")),
             None => areas,
         });
 
@@ -172,7 +195,12 @@ impl JmaWarning {
         true
     }
 
-    fn warnings_in(&self, xml: &str) -> Vec<(String, Vec<String>)> {
+    fn warnings_in(
+        &self,
+        xml: &str,
+        report: Option<DateTime<FixedOffset>>,
+        past: &[Snapshot],
+    ) -> Vec<(String, Vec<String>)> {
         parse_municipality_warnings(xml)
             .into_iter()
             .filter(|(area, _)| self.areas.iter().any(|a| area.starts_with(a.as_str())))
@@ -182,21 +210,52 @@ impl JmaWarning {
                     .filter(|k| {
                         self.kinds.is_empty() || self.kinds.iter().any(|want| k.name.contains(want))
                     })
-                    .map(|k| self.label(&k))
+                    .map(|k| {
+                        let since = (k.status == STATUS_CONTINUING)
+                            .then(|| issued_at(&area, &k.name, past))
+                            .flatten()
+                            .map(|at| since_text(at, report));
+                        self.label(&k, since)
+                    })
                     .collect();
                 (!kinds.is_empty()).then_some((area, kinds))
             })
             .collect()
     }
 
-    /// 新しく発表された種別には印を付ける。継続中のものはそのまま。
-    fn label(&self, kind: &Kind) -> String {
-        if kind.status == STATUS_NEW {
-            format!("{}{}{}", self.new_prefix, kind.name, self.new_suffix)
-        } else {
-            kind.name.clone()
+    /// 新しく発表された種別には印を付ける。継続中のものは発令時刻が分かれば添える。
+    fn label(&self, kind: &Kind, since: Option<String>) -> String {
+        match since {
+            _ if kind.status == STATUS_NEW => {
+                format!("{}{}{}", self.new_prefix, kind.name, self.new_suffix)
+            }
+            Some(since) => format!("{}({since}〜)", kind.name),
+            None => kind.name.clone(),
         }
     }
+}
+
+/// 過去の 1 回分の発表。発表時刻と、市町村等ブロックの中身。
+type Snapshot = (Option<DateTime<FixedOffset>>, Vec<(String, Vec<Kind>)>);
+
+/// 継続中の種別が発令された時刻。過去の発表を新しい順に辿り、`継続` でなくなった
+/// 発表の時刻を返す。途中で種別が消えていたり、辿り尽くしたりしたら分からない。
+fn issued_at(area: &str, kind: &str, past: &[Snapshot]) -> Option<DateTime<FixedOffset>> {
+    for (at, warnings) in past {
+        let (_, kinds) = warnings.iter().find(|(a, _)| a == area)?;
+        let status = &kinds.iter().find(|k| k.name == kind)?.status;
+        if status != STATUS_CONTINUING {
+            return *at;
+        }
+    }
+    None
+}
+
+/// 発令時刻の表示。発表と同じ日なら時刻だけにする。
+fn since_text(at: DateTime<FixedOffset>, report: Option<DateTime<FixedOffset>>) -> String {
+    let same_day = report.is_some_and(|r| r.date_naive() == at.date_naive());
+    let format = if same_day { "%H:%M" } else { "%-m/%-d %H:%M" };
+    at.format(format).to_string()
 }
 
 /// `..._VPWW53_280000.xml` から府県予報区コードを取り出す。
@@ -208,12 +267,11 @@ fn office_code_of(url: &str) -> Option<&str> {
     head.ends_with(DOCUMENT_TYPE).then_some(code)
 }
 
-/// 発表時刻。XML の Head/ReportDateTime を日本時間で表示する。
-fn report_time(xml: &str) -> Option<String> {
+/// 発表時刻。XML の Head/ReportDateTime を日本時間にする。
+fn report_at(xml: &str) -> Option<DateTime<FixedOffset>> {
     let raw = first_text_of(xml, "ReportDateTime")?;
-    let at = chrono::DateTime::parse_from_rfc3339(&raw).ok()?;
-    let jst = chrono::FixedOffset::east_opt(9 * 3600)?;
-    Some(at.with_timezone(&jst).format("%Y-%m-%d %H:%M").to_string())
+    let at = DateTime::parse_from_rfc3339(&raw).ok()?;
+    Some(at.with_timezone(&FixedOffset::east_opt(9 * 3600)?))
 }
 
 /// 指定した要素の最初のテキスト。
