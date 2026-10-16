@@ -30,7 +30,12 @@ fn to_item(entry: feed_rs::model::Entry) -> Item {
             .map(|t| t.content)
             .or_else(|| entry.content.and_then(|c| c.body)),
         published: entry.published.or(entry.updated),
-        authors: entry.authors.into_iter().map(|p| p.name).collect(),
+        // 3.0 で name と email が分離された。name が無ければ email を表示名に使い、従来どおり欠落させない
+        authors: entry
+            .authors
+            .into_iter()
+            .filter_map(|p| p.name.or(p.email))
+            .collect(),
         categories: entry.categories.into_iter().map(|c| c.term).collect(),
         // 判定は取得段階で行う
         paywalled: None,
