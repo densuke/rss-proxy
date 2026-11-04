@@ -42,6 +42,8 @@ $ rss-proxy opml export --base-url https://rss.example.com > feeds.opml
 
 DB のパスは `--db` で指定する (既定 `rss-proxy.db`)。
 
+同じホストや LAN 内のサービスを取得元にするときは、`http://127.0.0.1:8000/feed` のように IP アドレスで登録する。内部アドレスに解決されるホスト名 (`localhost` を含む) は、SSRF 対策のため取得できない。
+
 ## バックアップ
 
 ```console

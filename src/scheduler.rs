@@ -150,6 +150,10 @@ async fn gather_documents(
 
     let mut fetches = 0;
     for url in wanted {
+        if fetch::is_internal_url(&url) {
+            eprintln!("document {url}: 内部アドレスのため取得しません");
+            continue;
+        }
         match store.document_cached(&url) {
             Ok(Some(body)) => {
                 docs.insert(url, body);
@@ -208,6 +212,10 @@ pub async fn classify_items(
         let Some(rule) = paywall::rule_for(&link) else {
             continue;
         };
+        if fetch::is_internal_url(&link) {
+            eprintln!("paywall {link}: 内部アドレスのため取得しません");
+            continue;
+        }
 
         let access = match store.paywall_cached(&link) {
             Ok(Some(cached)) => cached,
